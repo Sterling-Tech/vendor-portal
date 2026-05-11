@@ -1,0 +1,8 @@
+{
+  "name": "@surma/rollup-plugin-off-main-thread",
+  "version": "0.0.0-stub",
+  "main": "index.js",
+  "type": "commonjs",
+  "description": "Local stub to disable off-main-thread bundling during development."
+}
+

@@ -1,0 +1,5 @@
+# Two-Factor Authentication Requirements
+pyotp>=2.9.0
+qrcode>=7.4.2
+Pillow>=10.0.0
+bleach>=6.0.0

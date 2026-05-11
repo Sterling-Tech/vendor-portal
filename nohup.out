@@ -1,0 +1,2 @@
+bash: line 1: 27286 Terminated: 15          BROWSER=none npm start > ../../frontend/vendor-portal.log 2>&1
+bash: line 1: 74704 Killed: 9               BROWSER=none npm start > ../../frontend/vendor-portal.log 2>&1
