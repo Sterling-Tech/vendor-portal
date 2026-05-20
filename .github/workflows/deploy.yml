@@ -1,4 +1,4 @@
-name: Deploy quickcash-tenant-portal
+name: Deploy quickcash-vendor-portal
 
 on:
   push:
@@ -19,8 +19,9 @@ jobs:
           username: root
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            cd /var/www/quickcash-full/frontend/tenant-portal
+            cd /var/www/quickcash-full/frontend/production/vendor-portal
             git pull origin ${{ github.ref_name }}
             npm install
             npm run build
             systemctl restart nginx
+            pm2 reload vendor-portal

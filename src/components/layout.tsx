@@ -109,17 +109,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     };
 
     // Top menus (AppBar)
-    const topMenuItems = [
-        { text: 'Dashboard', icon: <Dashboard />, path: '/tenants/dashboard' },
-        // { text: 'Analytics', icon: <Analytics />, path: '/analytics' },
-        { text: 'Transactions', icon: <Receipt />, path: '/transactions' },
-        // { text: 'Prepaid Services', icon: <PhoneAndroid />, path: '/prepaid' },
-    ];
+    // const topMenuItems = [
+    //     { text: 'Dashboard', icon: <Dashboard />, path: '/tenants/dashboard' },
+    //     { text: 'Analytics', icon: <Analytics />, path: '/analytics' },
+    //     { text: 'Transactions', icon: <Receipt />, path: '/transactions' },
+    //     { text: 'Prepaid Services', icon: <PhoneAndroid />, path: '/prepaid' },
+    // ];
 
     // Left side menus (drawer)
     const leftMenuItems = [
+        { text: 'Dashboard', icon: <Dashboard />, path: '/tenants/dashboard' },
         { text: 'Vendors', icon: <Business />, path: '/tenants/vendors' },
-        { text: 'Wallets', icon: <AccountBalance />, path: '/tenants/wallets' },
+         { text: 'Transactions', icon: <Receipt />, path: '/transactions' },
+        // { text: 'Wallets', icon: <AccountBalance />, path: '/tenants/wallets' },
         // { text: 'Agents', icon: <PeopleAlt />, path: '/agents' },
         { text: 'POS', icon: <PointOfSale />, path: '/pos' },
         { text: 'Settings', icon: <Settings />, path: '/settings' },
