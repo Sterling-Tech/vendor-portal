@@ -1,748 +1,1022 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
+    Alert,
+    Avatar,
     Box,
-    Typography,
+    Button,
     Card,
     CardContent,
-    Button,
+    Chip,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
+    Divider,
+    FormControl,
     Grid,
+    IconButton,
+    InputAdornment,
+    InputLabel,
+    LinearProgress,
+    MenuItem,
+    Paper,
+    Select,
+    Snackbar,
+    Stack,
     Table,
     TableBody,
     TableCell,
     TableContainer,
     TableHead,
+    TablePagination,
     TableRow,
-    Chip,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
     TextField,
-    Alert,
-    CircularProgress,
-    Stack,
-    IconButton,
     Tooltip,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
-    Paper,
-    Divider,
-    Autocomplete,
-    InputAdornment,
-    Snackbar,
-    List,
-    ListItemButton,
-    ListItemText,
-    Avatar,
-    LinearProgress,
-    Tabs,
-    Tab,
+    Typography,
 } from '@mui/material';
 import {
-    Refresh,
-    Send,
-    AccountTree,
-    Info,
     AccountBalanceWallet,
-    Domain,
-    Search,
-    ChevronRight,
-    ArrowDropDown,
-    Add,
+    Download,
+    History,
+    Info,
     Lock,
     LockOpen,
-    History,
-    TrendingUp,
+    Refresh,
+    Search,
     TrendingDown,
+    TrendingUp,
 } from '@mui/icons-material';
-import { useVendorHierarchy } from '../../../contexts/VendorContext';
-import { useOrgWallets } from '../../../hooks/useOrgWallets';
-import { useTenants } from '../../../hooks/useTenants';
-import { WalletTransferPayload, VendorOrg } from '../../../types/vendor';
+
+type WalletType = 'settlement' | 'operations' | 'commission' | 'collection' | 'trading';
+type TransactionType = 'credit' | 'debit';
+type TransactionStatus = 'success' | 'pending' | 'failed';
+type ChipColor = 'default' | 'primary' | 'secondary' | 'success' | 'warning' | 'info' | 'error';
+
+type Wallet = {
+    id: string;
+    key: string;
+    owner_name: string;
+    owner_level: string;
+    type: WalletType;
+    balance: number;
+    is_locked: boolean;
+    daily_limit: number;
+    daily_spent: number;
+    monthly_limit: number;
+    created_at: string;
+};
+
+type WalletTransaction = {
+    id: string;
+    wallet_id: string;
+    wallet_key: string;
+    vendor_name: string;
+    vendor_level: string;
+    wallet_type: WalletType;
+    type: TransactionType;
+    category: string;
+    amount: number;
+    reference: string;
+    description: string;
+    counterparty: string;
+    status: TransactionStatus;
+    balance_after: number;
+    created_at: string;
+};
 
 const formatCurrency = (value: number | string) =>
     new Intl.NumberFormat('en-NG', {
         style: 'currency',
         currency: 'NGN',
         maximumFractionDigits: 2,
-    }).format(Number(value));
+    }).format(Number(value || 0));
 
-interface TabPanelProps {
-    children?: React.ReactNode;
-    index: number;
-    value: number;
-}
+const formatNumber = (value: number | string) => new Intl.NumberFormat('en-NG').format(Number(value || 0));
 
-function TabPanel(props: TabPanelProps) {
-    const { children, value, index, ...other } = props;
-    return (
-        <div role="tabpanel" hidden={value !== index} {...other}>
-            {value === index && <Box sx={{ pt: 2 }}>{children}</Box>}
-        </div>
-    );
-}
+const daysAgo = (days: number, hours = 0) => {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    date.setHours(date.getHours() - hours);
+    return date.toISOString();
+};
+
+const formatDateTime = (value: string) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? new Date().toLocaleString() : date.toLocaleString();
+};
+
+const walletTypeLabel = (type: WalletType) =>
+    ({
+        settlement: 'Settlement',
+        operations: 'Operations',
+        commission: 'Commission',
+        collection: 'Collection',
+        trading: 'Trading',
+    })[type];
+
+const chipColor = (status: string): ChipColor => {
+    switch (status) {
+        case 'success':
+        case 'active':
+        case 'credit':
+            return 'success';
+        case 'pending':
+        case 'operations':
+            return 'warning';
+        case 'failed':
+        case 'debit':
+            return 'error';
+        case 'settlement':
+            return 'primary';
+        case 'commission':
+            return 'info';
+        case 'collection':
+            return 'secondary';
+        default:
+            return 'default';
+    }
+};
+
+const WALLETS: Wallet[] = [
+    {
+        id: 'wallet-apx-settlement',
+        key: 'apexpay-settlement',
+        owner_name: 'ApexPay Vendor HQ',
+        owner_level: 'Vendor Admin',
+        type: 'settlement',
+        balance: 126500000,
+        is_locked: false,
+        daily_limit: 50000000,
+        daily_spent: 12600000,
+        monthly_limit: 500000000,
+        created_at: daysAgo(48),
+    },
+    {
+        id: 'wallet-apx-ops',
+        key: 'apexpay-operations',
+        owner_name: 'ApexPay Vendor HQ',
+        owner_level: 'Vendor Admin',
+        type: 'operations',
+        balance: 38950000,
+        is_locked: false,
+        daily_limit: 20000000,
+        daily_spent: 7400000,
+        monthly_limit: 220000000,
+        created_at: daysAgo(47),
+    },
+    {
+        id: 'wallet-apx-commission',
+        key: 'apexpay-commission',
+        owner_name: 'ApexPay Vendor HQ',
+        owner_level: 'Vendor Admin',
+        type: 'commission',
+        balance: 17000000,
+        is_locked: false,
+        daily_limit: 8000000,
+        daily_spent: 1250000,
+        monthly_limit: 80000000,
+        created_at: daysAgo(46),
+    },
+    {
+        id: 'wallet-lagos-settlement',
+        key: 'lagos-settlement',
+        owner_name: 'Lagos Distribution Network',
+        owner_level: 'Sub-vendor',
+        type: 'settlement',
+        balance: 31800000,
+        is_locked: false,
+        daily_limit: 15000000,
+        daily_spent: 4200000,
+        monthly_limit: 140000000,
+        created_at: daysAgo(34),
+    },
+    {
+        id: 'wallet-lagos-collection',
+        key: 'lagos-collection',
+        owner_name: 'Lagos Distribution Network',
+        owner_level: 'Sub-vendor',
+        type: 'collection',
+        balance: 15500000,
+        is_locked: false,
+        daily_limit: 10000000,
+        daily_spent: 3100000,
+        monthly_limit: 90000000,
+        created_at: daysAgo(31),
+    },
+    {
+        id: 'wallet-ikeja-trading',
+        key: 'ikeja-trading',
+        owner_name: 'Ikeja Express Agent',
+        owner_level: 'Agent',
+        type: 'trading',
+        balance: 5200000,
+        is_locked: false,
+        daily_limit: 4500000,
+        daily_spent: 900000,
+        monthly_limit: 45000000,
+        created_at: daysAgo(22),
+    },
+    {
+        id: 'wallet-ikeja-commission',
+        key: 'ikeja-commission',
+        owner_name: 'Ikeja Express Agent',
+        owner_level: 'Agent',
+        type: 'commission',
+        balance: 1100000,
+        is_locked: false,
+        daily_limit: 1500000,
+        daily_spent: 210000,
+        monthly_limit: 12000000,
+        created_at: daysAgo(21),
+    },
+    {
+        id: 'wallet-counter-01',
+        key: 'counter-01-till',
+        owner_name: 'Counter 01 - Ikeja',
+        owner_level: 'Cashier',
+        type: 'collection',
+        balance: 1150000,
+        is_locked: false,
+        daily_limit: 2500000,
+        daily_spent: 540000,
+        monthly_limit: 18000000,
+        created_at: daysAgo(12),
+    },
+    {
+        id: 'wallet-northbridge-settlement',
+        key: 'northbridge-settlement',
+        owner_name: 'Northbridge Commerce HQ',
+        owner_level: 'Vendor Admin',
+        type: 'settlement',
+        balance: 76500000,
+        is_locked: false,
+        daily_limit: 28000000,
+        daily_spent: 5200000,
+        monthly_limit: 250000000,
+        created_at: daysAgo(42),
+    },
+    {
+        id: 'wallet-rivermart-settlement',
+        key: 'rivermart-settlement',
+        owner_name: 'RiverMart Distribution HQ',
+        owner_level: 'Vendor Admin',
+        type: 'settlement',
+        balance: 28400000,
+        is_locked: true,
+        daily_limit: 12000000,
+        daily_spent: 0,
+        monthly_limit: 95000000,
+        created_at: daysAgo(36),
+    },
+];
+
+const TRANSACTIONS: WalletTransaction[] = [
+    {
+        id: 'txn-001',
+        wallet_id: 'wallet-apx-settlement',
+        wallet_key: 'apexpay-settlement',
+        vendor_name: 'ApexPay Vendor HQ',
+        vendor_level: 'Vendor Admin',
+        wallet_type: 'settlement',
+        type: 'credit',
+        category: 'Wallet Funding',
+        amount: 12500000,
+        reference: 'WLT-APX-001',
+        description: 'Main wallet funding',
+        counterparty: 'Platform Settlement',
+        status: 'success',
+        balance_after: 126500000,
+        created_at: daysAgo(0, 1),
+    },
+    {
+        id: 'txn-002',
+        wallet_id: 'wallet-apx-settlement',
+        wallet_key: 'apexpay-settlement',
+        vendor_name: 'ApexPay Vendor HQ',
+        vendor_level: 'Vendor Admin',
+        wallet_type: 'settlement',
+        type: 'debit',
+        category: 'Transfer',
+        amount: 6800000,
+        reference: 'WLT-APX-002',
+        description: 'Transfer to Lagos Distribution Network',
+        counterparty: 'Lagos Distribution Network',
+        status: 'success',
+        balance_after: 119700000,
+        created_at: daysAgo(0, 2),
+    },
+    {
+        id: 'txn-003',
+        wallet_id: 'wallet-apx-ops',
+        wallet_key: 'apexpay-operations',
+        vendor_name: 'ApexPay Vendor HQ',
+        vendor_level: 'Vendor Admin',
+        wallet_type: 'operations',
+        type: 'debit',
+        category: 'Bill Payment',
+        amount: 1850000,
+        reference: 'WLT-APX-003',
+        description: 'Bulk bill settlement',
+        counterparty: 'Utility Switch',
+        status: 'success',
+        balance_after: 38950000,
+        created_at: daysAgo(1),
+    },
+    {
+        id: 'txn-004',
+        wallet_id: 'wallet-apx-commission',
+        wallet_key: 'apexpay-commission',
+        vendor_name: 'ApexPay Vendor HQ',
+        vendor_level: 'Vendor Admin',
+        wallet_type: 'commission',
+        type: 'credit',
+        category: 'Commission',
+        amount: 245000,
+        reference: 'WLT-APX-004',
+        description: 'Weekly commission settlement',
+        counterparty: 'System',
+        status: 'success',
+        balance_after: 17000000,
+        created_at: daysAgo(1, 3),
+    },
+    {
+        id: 'txn-005',
+        wallet_id: 'wallet-lagos-settlement',
+        wallet_key: 'lagos-settlement',
+        vendor_name: 'Lagos Distribution Network',
+        vendor_level: 'Sub-vendor',
+        wallet_type: 'settlement',
+        type: 'credit',
+        category: 'Transfer In',
+        amount: 6800000,
+        reference: 'WLT-LAG-001',
+        description: 'Funding from ApexPay Vendor HQ',
+        counterparty: 'ApexPay Vendor HQ',
+        status: 'success',
+        balance_after: 31800000,
+        created_at: daysAgo(0, 2),
+    },
+    {
+        id: 'txn-006',
+        wallet_id: 'wallet-lagos-collection',
+        wallet_key: 'lagos-collection',
+        vendor_name: 'Lagos Distribution Network',
+        vendor_level: 'Sub-vendor',
+        wallet_type: 'collection',
+        type: 'credit',
+        category: 'Collection',
+        amount: 920000,
+        reference: 'WLT-LAG-002',
+        description: 'Cash collection from agents',
+        counterparty: 'Agent Network',
+        status: 'pending',
+        balance_after: 15500000,
+        created_at: daysAgo(2),
+    },
+    {
+        id: 'txn-007',
+        wallet_id: 'wallet-lagos-settlement',
+        wallet_key: 'lagos-settlement',
+        vendor_name: 'Lagos Distribution Network',
+        vendor_level: 'Sub-vendor',
+        wallet_type: 'settlement',
+        type: 'debit',
+        category: 'Transfer',
+        amount: 2500000,
+        reference: 'WLT-LAG-003',
+        description: 'Transfer to Ikeja Express Agent',
+        counterparty: 'Ikeja Express Agent',
+        status: 'success',
+        balance_after: 29300000,
+        created_at: daysAgo(2, 4),
+    },
+    {
+        id: 'txn-008',
+        wallet_id: 'wallet-ikeja-trading',
+        wallet_key: 'ikeja-trading',
+        vendor_name: 'Ikeja Express Agent',
+        vendor_level: 'Agent',
+        wallet_type: 'trading',
+        type: 'credit',
+        category: 'Transfer In',
+        amount: 2500000,
+        reference: 'WLT-IKJ-001',
+        description: 'Agent float funding',
+        counterparty: 'Lagos Distribution Network',
+        status: 'success',
+        balance_after: 5200000,
+        created_at: daysAgo(2, 4),
+    },
+    {
+        id: 'txn-009',
+        wallet_id: 'wallet-ikeja-trading',
+        wallet_key: 'ikeja-trading',
+        vendor_name: 'Ikeja Express Agent',
+        vendor_level: 'Agent',
+        wallet_type: 'trading',
+        type: 'debit',
+        category: 'Airtime Purchase',
+        amount: 185000,
+        reference: 'WLT-IKJ-002',
+        description: 'Airtime vending',
+        counterparty: 'VTU Provider',
+        status: 'success',
+        balance_after: 5015000,
+        created_at: daysAgo(3),
+    },
+    {
+        id: 'txn-010',
+        wallet_id: 'wallet-ikeja-trading',
+        wallet_key: 'ikeja-trading',
+        vendor_name: 'Ikeja Express Agent',
+        vendor_level: 'Agent',
+        wallet_type: 'trading',
+        type: 'debit',
+        category: 'Data Bundle',
+        amount: 92000,
+        reference: 'WLT-IKJ-003',
+        description: 'Customer data bundle',
+        counterparty: 'Data Switch',
+        status: 'pending',
+        balance_after: 4923000,
+        created_at: daysAgo(3, 5),
+    },
+    {
+        id: 'txn-011',
+        wallet_id: 'wallet-ikeja-commission',
+        wallet_key: 'ikeja-commission',
+        vendor_name: 'Ikeja Express Agent',
+        vendor_level: 'Agent',
+        wallet_type: 'commission',
+        type: 'credit',
+        category: 'Commission',
+        amount: 68000,
+        reference: 'WLT-IKJ-004',
+        description: 'Agent commission',
+        counterparty: 'System',
+        status: 'success',
+        balance_after: 1100000,
+        created_at: daysAgo(4),
+    },
+    {
+        id: 'txn-012',
+        wallet_id: 'wallet-counter-01',
+        wallet_key: 'counter-01-till',
+        vendor_name: 'Counter 01 - Ikeja',
+        vendor_level: 'Cashier',
+        wallet_type: 'collection',
+        type: 'credit',
+        category: 'Cash Collection',
+        amount: 540000,
+        reference: 'WLT-CSH-001',
+        description: 'Till cash collection',
+        counterparty: 'Walk-in Customers',
+        status: 'success',
+        balance_after: 1150000,
+        created_at: daysAgo(4, 2),
+    },
+    {
+        id: 'txn-013',
+        wallet_id: 'wallet-counter-01',
+        wallet_key: 'counter-01-till',
+        vendor_name: 'Counter 01 - Ikeja',
+        vendor_level: 'Cashier',
+        wallet_type: 'collection',
+        type: 'debit',
+        category: 'Bill Payment',
+        amount: 46000,
+        reference: 'WLT-CSH-002',
+        description: 'Electricity token purchase',
+        counterparty: 'Utility Switch',
+        status: 'success',
+        balance_after: 1104000,
+        created_at: daysAgo(5),
+    },
+    {
+        id: 'txn-014',
+        wallet_id: 'wallet-northbridge-settlement',
+        wallet_key: 'northbridge-settlement',
+        vendor_name: 'Northbridge Commerce HQ',
+        vendor_level: 'Vendor Admin',
+        wallet_type: 'settlement',
+        type: 'credit',
+        category: 'Wallet Funding',
+        amount: 8900000,
+        reference: 'WLT-NBG-001',
+        description: 'Settlement top-up',
+        counterparty: 'Bank Transfer',
+        status: 'success',
+        balance_after: 76500000,
+        created_at: daysAgo(5, 4),
+    },
+    {
+        id: 'txn-015',
+        wallet_id: 'wallet-northbridge-settlement',
+        wallet_key: 'northbridge-settlement',
+        vendor_name: 'Northbridge Commerce HQ',
+        vendor_level: 'Vendor Admin',
+        wallet_type: 'settlement',
+        type: 'debit',
+        category: 'Transfer',
+        amount: 3100000,
+        reference: 'WLT-NBG-002',
+        description: 'Regional float transfer',
+        counterparty: 'Kano Wholesale Network',
+        status: 'success',
+        balance_after: 73400000,
+        created_at: daysAgo(6),
+    },
+    {
+        id: 'txn-016',
+        wallet_id: 'wallet-rivermart-settlement',
+        wallet_key: 'rivermart-settlement',
+        vendor_name: 'RiverMart Distribution HQ',
+        vendor_level: 'Vendor Admin',
+        wallet_type: 'settlement',
+        type: 'credit',
+        category: 'Wallet Funding',
+        amount: 4200000,
+        reference: 'WLT-RVM-001',
+        description: 'Manual settlement funding',
+        counterparty: 'Bank Transfer',
+        status: 'failed',
+        balance_after: 28400000,
+        created_at: daysAgo(7),
+    },
+];
+
+const escapeCsv = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
 const WalletManagement: React.FC = () => {
-    const { tenantId, setTenantId, selectedOrg, selectedOrgId, selectOrg, tree, refresh } = useVendorHierarchy();
-    const { tenants, loading: tenantsLoading, selectTenant, selectedTenant } = useTenants();
-    const { wallets, loading, error, transfer, totalBalance, refresh: refreshWallets } = useOrgWallets(selectedOrgId);
-
-    // UI States
-    const [transferDialogOpen, setTransferDialogOpen] = useState(false);
-    const [selectedWalletId, setSelectedWalletId] = useState<string | null>(null);
-    const [walletDetailsDialogOpen, setWalletDetailsDialogOpen] = useState(false);
-    const [selectedWalletDetails, setSelectedWalletDetails] = useState<typeof wallets[0] | null>(null);
-    const [transferForm, setTransferForm] = useState<WalletTransferPayload>({
-        destination_owner_type: 'vendor_org',
-        destination_owner_id: '',
-        amount: 0,
-        description: '',
-    });
-    const [actionError, setActionError] = useState<string | null>(null);
-    const [transferLoading, setTransferLoading] = useState(false);
+    const [wallets] = useState<Wallet[]>(WALLETS);
+    const [transactions] = useState<WalletTransaction[]>(TRANSACTIONS);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [transactionType, setTransactionType] = useState<TransactionType | 'all'>('all');
+    const [walletType, setWalletType] = useState<WalletType | 'all'>('all');
+    const [statusFilter, setStatusFilter] = useState<TransactionStatus | 'all'>('all');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [page, setPage] = useState(0);
+    const [rowsPerPage, setRowsPerPage] = useState(8);
+    const [lastUpdated, setLastUpdated] = useState(new Date());
     const [success, setSuccess] = useState<string | null>(null);
-    const [tenantSearchTerm, setTenantSearchTerm] = useState('');
-    const [orgSearchTerm, setOrgSearchTerm] = useState('');
-    const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-    const [tabValue, setTabValue] = useState(0);
+    const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
 
-    // Mock transaction history (in real app, this would come from backend)
-    const [transactionHistory] = useState([
-        { id: '1', type: 'transfer_out', amount: 5000, reference: 'TXN001', date: new Date().toISOString(), status: 'success', recipient: 'Sub-vendor A' },
-        { id: '2', type: 'transfer_in', amount: 10000, reference: 'TXN002', date: new Date(Date.now() - 3600000).toISOString(), status: 'success', sender: 'Vendor Admin' },
-        { id: '3', type: 'commission', amount: 250, reference: 'COM001', date: new Date(Date.now() - 7200000).toISOString(), status: 'success' },
-    ]);
+    const filteredTransactions = useMemo(() => {
+        const term = searchTerm.trim().toLowerCase();
 
-    // Sync tenant selection
-    useEffect(() => {
-        if (selectedTenant?.id && selectedTenant.id !== tenantId) {
-            setTenantId(selectedTenant.id);
-        }
-    }, [selectedTenant, tenantId, setTenantId]);
+        return transactions.filter((tx) => {
+            const matchesSearch =
+                !term ||
+                tx.reference.toLowerCase().includes(term) ||
+                tx.vendor_name.toLowerCase().includes(term) ||
+                tx.wallet_key.toLowerCase().includes(term) ||
+                tx.description.toLowerCase().includes(term) ||
+                tx.counterparty.toLowerCase().includes(term);
 
-    // Auto-select first tenant
-    useEffect(() => {
-        if (!tenantId && tenants.length > 0) {
-            selectTenant(tenants[0].id);
-            setTenantId(tenants[0].id);
-        }
-    }, [tenantId, tenants, selectTenant, setTenantId]);
+            const matchesTransactionType = transactionType === 'all' || tx.type === transactionType;
+            const matchesWalletType = walletType === 'all' || tx.wallet_type === walletType;
+            const matchesStatus = statusFilter === 'all' || tx.status === statusFilter;
 
-    // Auto-select first org
-    useEffect(() => {
-        if (!selectedOrgId && tree && tree.length > 0) {
-            selectOrg(tree[0].id);
-        }
-    }, [selectedOrgId, tree, selectOrg]);
+            const created = new Date(tx.created_at).getTime();
+            const matchesStart = !startDate || created >= new Date(`${startDate}T00:00:00`).getTime();
+            const matchesEnd = !endDate || created <= new Date(`${endDate}T23:59:59`).getTime();
 
-    // Filtered tenants
-    const filteredTenants = useMemo(() => {
-        if (!tenantSearchTerm.trim()) return tenants;
-        const term = tenantSearchTerm.toLowerCase();
-        return tenants.filter(
-            (t) =>
-                t.name.toLowerCase().includes(term) ||
-                t.domain.toLowerCase().includes(term)
-        );
-    }, [tenants, tenantSearchTerm]);
-
-    // Filtered tree
-    const filteredTree = useMemo(() => {
-        if (!orgSearchTerm.trim()) return tree;
-        const term = orgSearchTerm.toLowerCase();
-        const filterNodes = (nodes: VendorOrg[]): VendorOrg[] => {
-            return nodes.reduce((acc: VendorOrg[], node) => {
-                const matches = node.name.toLowerCase().includes(term);
-                const filteredChildren = node.children ? filterNodes(node.children) : [];
-                if (matches || filteredChildren.length > 0) {
-                    acc.push({
-                        ...node,
-                        children: filteredChildren.length > 0 ? filteredChildren : node.children,
-                    });
-                }
-                return acc;
-            }, []);
-        };
-        return filterNodes(tree);
-    }, [tree, orgSearchTerm]);
-
-    // Org options for transfer
-    const orgOptions = useMemo(() => {
-        const options: { label: string; value: string; level: string }[] = [];
-        const traverse = (nodes: typeof tree, path: string = '') => {
-            if (!nodes || !Array.isArray(nodes)) return;
-            nodes.forEach((node) => {
-                const fullPath = path ? `${path} > ${node.name}` : node.name;
-                options.push({ label: fullPath, value: node.id, level: node.level });
-                if (node.children?.length) traverse(node.children, fullPath);
-            });
-        };
-        traverse(tree);
-        return options;
-    }, [tree]);
-
-    // Wallet statistics
-    const walletStats = useMemo(() => {
-        if (!wallets.length) return null;
-        const total = wallets.reduce((sum, w) => sum + Number(w.balance), 0);
-        const locked = wallets.filter(w => w.is_locked).length;
-        const active = wallets.filter(w => !w.is_locked).length;
-        return { total, locked, active, count: wallets.length };
-    }, [wallets]);
-
-    const toggleExpanded = (id: string) => {
-        setExpandedIds((prev) => {
-            const clone = new Set(prev);
-            if (clone.has(id)) {
-                clone.delete(id);
-            } else {
-                clone.add(id);
-            }
-            return clone;
+            return matchesSearch && matchesTransactionType && matchesWalletType && matchesStatus && matchesStart && matchesEnd;
         });
-    };
+    }, [endDate, searchTerm, startDate, statusFilter, transactionType, transactions, walletType]);
 
-    const handleTransferClick = (walletId: string) => {
-        setSelectedWalletId(walletId);
-        setTransferForm({ destination_owner_type: 'vendor_org', destination_owner_id: '', amount: 0, description: '' });
-        setActionError(null);
-        setTransferDialogOpen(true);
-    };
-
-    const handleTransferSubmit = async () => {
-        if (!selectedWalletId) return;
-
-        const sourceWallet = wallets.find(w => w.id === selectedWalletId);
-        if (sourceWallet && transferForm.amount > Number(sourceWallet.balance)) {
-            setActionError('Transfer amount exceeds wallet balance');
-            return;
-        }
-
-        setTransferLoading(true);
-        setActionError(null);
-        try {
-            await transfer(selectedWalletId, transferForm);
-            setTransferDialogOpen(false);
-            setTransferForm({
-                destination_owner_type: 'vendor_org',
-                destination_owner_id: '',
-                amount: 0,
-                description: '',
-            });
-            setSuccess('Transfer completed successfully!');
-            refreshWallets();
-        } catch (err: any) {
-            console.error(err);
-            setActionError(err?.message || 'Failed to transfer funds');
-        } finally {
-            setTransferLoading(false);
-        }
-    };
-
-    const handleViewWalletDetails = (wallet: typeof wallets[0]) => {
-        setSelectedWalletDetails(wallet);
-        setWalletDetailsDialogOpen(true);
-    };
-
-    const renderTree = (nodes: VendorOrg[], depth = 0) => (
-        <List disablePadding dense>
-            {nodes.map((node) => {
-                const hasChildren = Boolean(node.children?.length);
-                const isExpanded = expandedIds.has(node.id);
-                const nodeWalletCount = 0; // Would come from backend
-                return (
-                    <Box key={node.id}>
-                        <ListItemButton
-                            selected={node.id === selectedOrgId}
-                            onClick={() => selectOrg(node.id)}
-                            sx={{ pl: depth * 2 + 1, py: 0.5 }}
-                        >
-                            {hasChildren ? (
-                                <IconButton
-                                    size="small"
-                                    onClick={(e) => { e.stopPropagation(); toggleExpanded(node.id); }}
-                                    sx={{ mr: 0.5 }}
-                                >
-                                    {isExpanded ? <ArrowDropDown fontSize="small" /> : <ChevronRight fontSize="small" />}
-                                </IconButton>
-                            ) : (
-                                <Box sx={{ width: 28 }} />
-                            )}
-                            <ListItemText
-                                primary={
-                                    <Stack direction="row" spacing={1} alignItems="center">
-                                        <Typography variant="body2">{node.name}</Typography>
-                                        <Chip
-                                            label={node.level.replace('_', ' ')}
-                                            size="small"
-                                            variant="outlined"
-                                            sx={{ height: 20, fontSize: '0.65rem' }}
-                                        />
-                                    </Stack>
-                                }
-                            />
-                        </ListItemButton>
-                        {hasChildren && isExpanded && node.children && renderTree(node.children, depth + 1)}
-                    </Box>
-                );
-            })}
-        </List>
+    const paginatedTransactions = useMemo(
+        () => filteredTransactions.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+        [filteredTransactions, page, rowsPerPage]
     );
 
+    const walletBalance = useMemo(() => wallets.reduce((sum, wallet) => sum + wallet.balance, 0), [wallets]);
+    const creditBalance = useMemo(
+        () => filteredTransactions.filter((tx) => tx.type === 'credit').reduce((sum, tx) => sum + tx.amount, 0),
+        [filteredTransactions]
+    );
+    const debitBalance = useMemo(
+        () => filteredTransactions.filter((tx) => tx.type === 'debit').reduce((sum, tx) => sum + tx.amount, 0),
+        [filteredTransactions]
+    );
+    const netBalance = creditBalance - debitBalance;
+
+    const activeWallets = wallets.filter((wallet) => !wallet.is_locked).length;
+    const lockedWallets = wallets.filter((wallet) => wallet.is_locked).length;
+
+    const selectedWalletTransactions = selectedWallet
+        ? transactions.filter((tx) => tx.wallet_id === selectedWallet.id)
+        : [];
+
+    const resetFilters = () => {
+        setSearchTerm('');
+        setTransactionType('all');
+        setWalletType('all');
+        setStatusFilter('all');
+        setStartDate('');
+        setEndDate('');
+        setPage(0);
+    };
+
+    const exportTransactions = useCallback(() => {
+        if (typeof document === 'undefined') return;
+
+        const headers = [
+            'Date',
+            'Reference',
+            'Vendor',
+            'Vendor Level',
+            'Wallet Key',
+            'Wallet Type',
+            'Transaction Type',
+            'Category',
+            'Amount',
+            'Counterparty',
+            'Status',
+            'Balance After',
+            'Description',
+        ];
+
+        const rows = filteredTransactions.map((tx) => [
+            formatDateTime(tx.created_at),
+            tx.reference,
+            tx.vendor_name,
+            tx.vendor_level,
+            tx.wallet_key,
+            walletTypeLabel(tx.wallet_type),
+            tx.type,
+            tx.category,
+            tx.amount,
+            tx.counterparty,
+            tx.status,
+            tx.balance_after,
+            tx.description,
+        ]);
+
+        const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+
+        link.href = url;
+        link.download = `wallet-transactions-${startDate || 'all'}-${endDate || 'all'}-${transactionType}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+
+        setSuccess(`Exported ${filteredTransactions.length} wallet transactions`);
+    }, [endDate, filteredTransactions, startDate, transactionType]);
+
+    const handleFilterChange = (action: () => void) => {
+        action();
+        setPage(0);
+    };
+
     return (
-        <Box p={3}>
-            {/* Header */}
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-                <Typography variant="h4">Wallet Management</Typography>
+        <Box
+            p={{ xs: 2, md: 3 }}
+            sx={{
+                '@keyframes tableSlideIn': {
+                    from: { opacity: 0, transform: 'translateX(-24px)' },
+                    to: { opacity: 1, transform: 'translateX(0)' },
+                },
+                '@keyframes cardRise': {
+                    from: { opacity: 0, transform: 'translateY(14px)' },
+                    to: { opacity: 1, transform: 'translateY(0)' },
+                },
+            }}
+        >
+            <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} spacing={2} mb={3}>
+                <Box>
+                    <Typography variant="h4">Wallet Management</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        All vendor wallets and filtered wallet transactions - updated {lastUpdated.toLocaleTimeString()}
+                    </Typography>
+                </Box>
+
                 <Stack direction="row" spacing={1}>
-                    <Button
-                        variant="outlined"
-                        startIcon={<Refresh />}
-                        onClick={() => { refresh(); refreshWallets(); }}
-                        disabled={loading}
-                    >
+                    <Button variant="outlined" startIcon={<Refresh />} onClick={() => setLastUpdated(new Date())}>
                         Refresh
+                    </Button>
+                    <Button variant="contained" startIcon={<Download />} onClick={exportTransactions} disabled={!filteredTransactions.length}>
+                        Export
                     </Button>
                 </Stack>
             </Stack>
 
-            {/* Alerts */}
-            {error && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                    {error}
-                </Alert>
-            )}
-            {actionError && (
-                <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>
-                    {actionError}
-                </Alert>
-            )}
-
-            {/* Success Snackbar */}
-            <Snackbar
-                open={!!success}
-                autoHideDuration={4000}
-                onClose={() => setSuccess(null)}
-                anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-            >
-                <Alert severity="success" onClose={() => setSuccess(null)}>
-                    {success}
-                </Alert>
-            </Snackbar>
-
-            <Grid container spacing={3}>
-                {/* Left Panel - Tenant & Organisation Selection */}
-                <Grid item xs={12} md={4}>
-                    <Stack spacing={2}>
-                        {/* Tenant Selection */}
-                        <Card>
-                            <CardContent>
-                                <Stack spacing={2}>
-                                    <Typography variant="h6">Select Tenant</Typography>
-                                    <Autocomplete
-                                        options={filteredTenants}
-                                        getOptionLabel={(option) => `${option.name} (${option.domain})`}
-                                        value={tenants.find((t) => t.id === tenantId) || null}
-                                        onChange={(_, newValue) => {
-                                            if (newValue) {
-                                                selectTenant(newValue.id);
-                                                setTenantId(newValue.id);
-                                            }
-                                        }}
-                                        onInputChange={(_, newValue) => setTenantSearchTerm(newValue)}
-                                        loading={tenantsLoading}
-                                        size="small"
-                                        renderInput={(params) => (
-                                            <TextField
-                                                {...params}
-                                                placeholder="Search tenants..."
-                                                InputProps={{
-                                                    ...params.InputProps,
-                                                    startAdornment: (
-                                                        <>
-                                                            <InputAdornment position="start">
-                                                                <Domain fontSize="small" />
-                                                            </InputAdornment>
-                                                            {params.InputProps.startAdornment}
-                                                        </>
-                                                    ),
-                                                }}
-                                            />
-                                        )}
-                                    />
-                                </Stack>
-                            </CardContent>
-                        </Card>
-
-                        {/* Organisation Tree */}
-                        <Card>
-                            <CardContent>
-                                <Stack spacing={2}>
-                                    <Typography variant="h6">Select Organisation</Typography>
-                                    <TextField
-                                        placeholder="Search organisations..."
-                                        size="small"
-                                        value={orgSearchTerm}
-                                        onChange={(e) => setOrgSearchTerm(e.target.value)}
-                                        InputProps={{
-                                            startAdornment: (
-                                                <InputAdornment position="start">
-                                                    <Search fontSize="small" />
-                                                </InputAdornment>
-                                            ),
-                                        }}
-                                    />
-                                    {!tenantId ? (
-                                        <Alert severity="info" sx={{ py: 1 }}>
-                                            Select a tenant first
-                                        </Alert>
-                                    ) : loading && (!tree || !tree.length) ? (
-                                        <Box display="flex" justifyContent="center" py={2}>
-                                            <CircularProgress size={24} />
-                                        </Box>
-                                    ) : filteredTree.length ? (
-                                        <Box sx={{ maxHeight: 300, overflow: 'auto' }}>
-                                            {renderTree(filteredTree)}
-                                        </Box>
-                                    ) : (
-                                        <Alert severity="info" sx={{ py: 1 }}>
-                                            No organisations found
-                                        </Alert>
-                                    )}
-                                </Stack>
-                            </CardContent>
-                        </Card>
-
-                        {/* Selected Org Summary */}
-                        {selectedOrg && (
-                            <Card>
-                                <CardContent>
-                                    <Stack spacing={2}>
-                                        <Typography variant="h6">Selected Organisation</Typography>
-                                        <Stack spacing={1}>
-                                            <Typography variant="subtitle1" fontWeight="medium">
-                                                {selectedOrg.name}
-                                            </Typography>
-                                            <Stack direction="row" spacing={1}>
-                                                <Chip label={selectedOrg.level.replace('_', ' ')} size="small" variant="outlined" />
-                                                <Chip
-                                                    label={selectedOrg.status}
-                                                    size="small"
-                                                    color={selectedOrg.status === 'active' ? 'success' : 'warning'}
-                                                />
-                                            </Stack>
-                                        </Stack>
-                                        {walletStats && (
-                                            <>
-                                                <Divider />
-                                                <Paper variant="outlined" sx={{ p: 2, bgcolor: 'primary.light', color: 'primary.contrastText' }}>
-                                                    <Typography variant="caption">Total Balance</Typography>
-                                                    <Typography variant="h5" fontWeight="bold">
-                                                        {formatCurrency(walletStats.total)}
-                                                    </Typography>
-                                                </Paper>
-                                                <Stack direction="row" spacing={1}>
-                                                    <Chip
-                                                        label={`${walletStats.active} active`}
-                                                        size="small"
-                                                        color="success"
-                                                        variant="outlined"
-                                                    />
-                                                    {walletStats.locked > 0 && (
-                                                        <Chip
-                                                            label={`${walletStats.locked} locked`}
-                                                            size="small"
-                                                            color="error"
-                                                            variant="outlined"
-                                                        />
-                                                    )}
-                                                </Stack>
-                                            </>
-                                        )}
-                                    </Stack>
-                                </CardContent>
-                            </Card>
-                        )}
-                    </Stack>
+            <Grid container spacing={2} mb={3}>
+                <Grid item xs={12} md={3}>
+                    <Card sx={{ height: '100%', borderRadius: 1, animation: 'cardRise 260ms ease' }}>
+                        <CardContent>
+                            <Stack direction="row" justifyContent="space-between" spacing={2}>
+                                <Box>
+                                    <Typography variant="body2" color="text.secondary">Wallet Balance</Typography>
+                                    <Typography variant="h5" fontWeight={700}>{formatCurrency(walletBalance)}</Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                        {activeWallets} active, {lockedWallets} locked
+                                    </Typography>
+                                </Box>
+                                <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main' }}>
+                                    <AccountBalanceWallet />
+                                </Avatar>
+                            </Stack>
+                        </CardContent>
+                    </Card>
                 </Grid>
 
-                {/* Right Panel - Wallets */}
-                <Grid item xs={12} md={8}>
-                    <Card>
+                <Grid item xs={12} md={3}>
+                    <Card sx={{ height: '100%', borderRadius: 1, animation: 'cardRise 300ms ease' }}>
                         <CardContent>
-                            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-                                <Typography variant="h6">
-                                    Wallets {wallets.length > 0 && `(${wallets.length})`}
-                                </Typography>
+                            <Stack direction="row" justifyContent="space-between" spacing={2}>
+                                <Box>
+                                    <Typography variant="body2" color="text.secondary">Credit Balance</Typography>
+                                    <Typography variant="h5" fontWeight={700} color="success.main">{formatCurrency(creditBalance)}</Typography>
+                                    <Typography variant="caption" color="text.secondary">Filtered credits</Typography>
+                                </Box>
+                                <Avatar sx={{ bgcolor: 'success.light', color: 'success.main' }}>
+                                    <TrendingUp />
+                                </Avatar>
                             </Stack>
+                        </CardContent>
+                    </Card>
+                </Grid>
 
-                            <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ mb: 2 }}>
-                                <Tab label="Wallets" icon={<AccountBalanceWallet />} iconPosition="start" />
-                                <Tab label="Transaction History" icon={<History />} iconPosition="start" />
-                            </Tabs>
+                <Grid item xs={12} md={3}>
+                    <Card sx={{ height: '100%', borderRadius: 1, animation: 'cardRise 340ms ease' }}>
+                        <CardContent>
+                            <Stack direction="row" justifyContent="space-between" spacing={2}>
+                                <Box>
+                                    <Typography variant="body2" color="text.secondary">Debit Balance</Typography>
+                                    <Typography variant="h5" fontWeight={700} color="error.main">{formatCurrency(debitBalance)}</Typography>
+                                    <Typography variant="caption" color="text.secondary">Filtered debits</Typography>
+                                </Box>
+                                <Avatar sx={{ bgcolor: 'error.light', color: 'error.main' }}>
+                                    <TrendingDown />
+                                </Avatar>
+                            </Stack>
+                        </CardContent>
+                    </Card>
+                </Grid>
 
-                            <TabPanel value={tabValue} index={0}>
-                                {!selectedOrg ? (
-                                    <Alert severity="info">
-                                        Select an organisation to view its wallets
-                                    </Alert>
-                                ) : loading ? (
-                                    <Box display="flex" justifyContent="center" py={4}>
-                                        <CircularProgress />
-                                    </Box>
-                                ) : wallets.length ? (
-                                    <TableContainer>
-                                        <Table>
-                                            <TableHead>
-                                                <TableRow>
-                                                    <TableCell>Wallet Key</TableCell>
-                                                    <TableCell>Type</TableCell>
-                                                    <TableCell>Role</TableCell>
-                                                    <TableCell align="right">Balance</TableCell>
-                                                    <TableCell>Status</TableCell>
-                                                    <TableCell align="right">Actions</TableCell>
-                                                </TableRow>
-                                            </TableHead>
-                                            <TableBody>
-                                                {wallets.map((wallet) => (
-                                                    <TableRow key={wallet.id} hover>
-                                                        <TableCell>
-                                                            <Typography variant="body2" fontFamily="monospace">
-                                                                {wallet.key}
-                                                            </Typography>
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <Chip label={wallet.type} size="small" color="primary" variant="outlined" />
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            {wallet.role ? (
-                                                                <Chip label={wallet.role} size="small" variant="outlined" />
-                                                            ) : (
-                                                                '—'
-                                                            )}
-                                                        </TableCell>
-                                                        <TableCell align="right">
-                                                            <Typography variant="subtitle2" fontWeight="bold">
-                                                                {formatCurrency(wallet.balance)}
-                                                            </Typography>
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <Chip
-                                                                label={wallet.is_locked ? 'Locked' : 'Active'}
-                                                                size="small"
-                                                                color={wallet.is_locked ? 'error' : 'success'}
-                                                                icon={wallet.is_locked ? <Lock fontSize="small" /> : <LockOpen fontSize="small" />}
-                                                            />
-                                                        </TableCell>
-                                                        <TableCell align="right">
-                                                            <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                                                                <Tooltip title="View Details">
-                                                                    <IconButton size="small" onClick={() => handleViewWalletDetails(wallet)}>
-                                                                        <Info fontSize="small" />
-                                                                    </IconButton>
-                                                                </Tooltip>
-                                                                <Button
-                                                                    size="small"
-                                                                    variant="contained"
-                                                                    startIcon={<Send />}
-                                                                    onClick={() => handleTransferClick(wallet.id)}
-                                                                    disabled={Number(wallet.balance) <= 0 || wallet.is_locked}
-                                                                >
-                                                                    Transfer
-                                                                </Button>
-                                                            </Stack>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </TableContainer>
-                                ) : (
-                                    <Stack spacing={2} alignItems="center" sx={{ py: 4 }}>
-                                        <AccountBalanceWallet sx={{ fontSize: 48, color: 'text.secondary' }} />
-                                        <Typography color="text.secondary">
-                                            No wallets found for this organisation
-                                        </Typography>
-                                    </Stack>
-                                )}
-                            </TabPanel>
-
-                            <TabPanel value={tabValue} index={1}>
-                                {!selectedOrg ? (
-                                    <Alert severity="info">
-                                        Select an organisation to view transaction history
-                                    </Alert>
-                                ) : transactionHistory.length ? (
-                                    <Stack spacing={2}>
-                                        {transactionHistory.map((tx) => (
-                                            <Paper key={tx.id} variant="outlined" sx={{ p: 2 }}>
-                                                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                                                    <Stack direction="row" spacing={2} alignItems="center">
-                                                        <Avatar
-                                                            sx={{
-                                                                bgcolor: tx.type === 'transfer_in' || tx.type === 'commission'
-                                                                    ? 'success.light'
-                                                                    : 'error.light',
-                                                            }}
-                                                        >
-                                                            {tx.type === 'transfer_in' || tx.type === 'commission' ? (
-                                                                <TrendingUp />
-                                                            ) : (
-                                                                <TrendingDown />
-                                                            )}
-                                                        </Avatar>
-                                                        <Box>
-                                                            <Typography variant="subtitle2">
-                                                                {tx.type === 'transfer_in' ? 'Received' :
-                                                                    tx.type === 'transfer_out' ? 'Sent' : 'Commission'}
-                                                            </Typography>
-                                                            <Typography variant="caption" color="text.secondary">
-                                                                {tx.reference} • {new Date(tx.date).toLocaleString()}
-                                                            </Typography>
-                                                            {tx.recipient && (
-                                                                <Typography variant="caption" display="block" color="text.secondary">
-                                                                    To: {tx.recipient}
-                                                                </Typography>
-                                                            )}
-                                                            {tx.sender && (
-                                                                <Typography variant="caption" display="block" color="text.secondary">
-                                                                    From: {tx.sender}
-                                                                </Typography>
-                                                            )}
-                                                        </Box>
-                                                    </Stack>
-                                                    <Stack alignItems="flex-end">
-                                                        <Typography
-                                                            variant="subtitle1"
-                                                            fontWeight="bold"
-                                                            color={tx.type === 'transfer_in' || tx.type === 'commission' ? 'success.main' : 'error.main'}
-                                                        >
-                                                            {tx.type === 'transfer_in' || tx.type === 'commission' ? '+' : '-'}
-                                                            {formatCurrency(tx.amount)}
-                                                        </Typography>
-                                                        <Chip label={tx.status} size="small" color="success" />
-                                                    </Stack>
-                                                </Stack>
-                                            </Paper>
-                                        ))}
-                                    </Stack>
-                                ) : (
-                                    <Alert severity="info">No transaction history available</Alert>
-                                )}
-                            </TabPanel>
+                <Grid item xs={12} md={3}>
+                    <Card sx={{ height: '100%', borderRadius: 1, animation: 'cardRise 380ms ease' }}>
+                        <CardContent>
+                            <Stack direction="row" justifyContent="space-between" spacing={2}>
+                                <Box>
+                                    <Typography variant="body2" color="text.secondary">Net Total</Typography>
+                                    <Typography variant="h5" fontWeight={700} color={netBalance >= 0 ? 'success.main' : 'error.main'}>
+                                        {formatCurrency(netBalance)}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                        {filteredTransactions.length} filtered records
+                                    </Typography>
+                                </Box>
+                                <Avatar sx={{ bgcolor: 'info.light', color: 'info.main' }}>
+                                    <History />
+                                </Avatar>
+                            </Stack>
                         </CardContent>
                     </Card>
                 </Grid>
             </Grid>
 
-            {/* Transfer Dialog */}
-            <Dialog open={transferDialogOpen} onClose={() => setTransferDialogOpen(false)} maxWidth="sm" fullWidth>
-                <DialogTitle>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                        <Send color="primary" />
-                        <Typography variant="h6">Transfer Funds</Typography>
-                    </Stack>
-                </DialogTitle>
-                <DialogContent>
-                    {actionError && (
-                        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>
-                            {actionError}
-                        </Alert>
-                    )}
-                    <Stack spacing={3} mt={1}>
-                        {selectedWalletId && (
-                            <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.50' }}>
-                                <Typography variant="caption" color="text.secondary">
-                                    Source Wallet
-                                </Typography>
-                                <Typography variant="body1" fontWeight="medium">
-                                    {wallets.find(w => w.id === selectedWalletId)?.key || '—'}
-                                </Typography>
-                                <Typography variant="h6" color="primary" fontWeight="bold">
-                                    Balance: {formatCurrency(wallets.find(w => w.id === selectedWalletId)?.balance || 0)}
-                                </Typography>
-                            </Paper>
-                        )}
-                        <Autocomplete
-                            options={orgOptions.filter(o => o.value !== selectedOrgId)}
-                            getOptionLabel={(option) => option.label}
-                            value={orgOptions.find(o => o.value === transferForm.destination_owner_id) || null}
-                            onChange={(_, newValue) => {
-                                setTransferForm(prev => ({
-                                    ...prev,
-                                    destination_owner_id: newValue?.value || ''
-                                }));
-                            }}
-                            renderInput={(params) => (
-                                <TextField
-                                    {...params}
-                                    label="Destination Organisation"
-                                    placeholder="Select destination..."
-                                />
-                            )}
-                            renderOption={(props, option) => (
-                                <li {...props}>
-                                    <Stack>
-                                        <Typography variant="body2">{option.label}</Typography>
-                                        <Chip label={option.level.replace('_', ' ')} size="small" sx={{ width: 'fit-content' }} />
-                                    </Stack>
-                                </li>
-                            )}
-                        />
-                        <TextField
-                            type="number"
-                            label="Amount"
-                            value={transferForm.amount || ''}
-                            onChange={(e) => {
-                                const val = Number(e.target.value);
-                                setTransferForm((prev) => ({ ...prev, amount: val > 0 ? val : 0 }));
-                            }}
-                            fullWidth
-                            InputProps={{
-                                startAdornment: <InputAdornment position="start">₦</InputAdornment>,
-                            }}
-                            error={!!(selectedWalletId && transferForm.amount > Number(wallets.find(w => w.id === selectedWalletId)?.balance || 0))}
-                            helperText={
-                                selectedWalletId && transferForm.amount > Number(wallets.find(w => w.id === selectedWalletId)?.balance || 0)
-                                    ? 'Amount exceeds wallet balance'
-                                    : 'Enter the amount to transfer'
-                            }
-                        />
-                        <TextField
-                            label="Description (Optional)"
-                            value={transferForm.description || ''}
-                            onChange={(e) => setTransferForm((prev) => ({ ...prev, description: e.target.value }))}
-                            multiline
-                            rows={2}
-                            placeholder="Add a note for this transfer..."
-                            fullWidth
-                        />
-                    </Stack>
-                </DialogContent>
-                <DialogActions sx={{ px: 3, pb: 2 }}>
-                    <Button onClick={() => setTransferDialogOpen(false)}>
-                        Cancel
-                    </Button>
-                    <Button
-                        variant="contained"
-                        onClick={handleTransferSubmit}
-                        disabled={
-                            transferLoading ||
-                            !transferForm.destination_owner_id ||
-                            transferForm.amount <= 0 ||
-                            !!(selectedWalletId && transferForm.amount > Number(wallets.find(w => w.id === selectedWalletId)?.balance || 0))
-                        }
-                        startIcon={transferLoading ? <CircularProgress size={16} /> : <Send />}
-                    >
-                        {transferLoading ? 'Transferring...' : 'Transfer'}
-                    </Button>
-                </DialogActions>
-            </Dialog>
+            <Card sx={{ mb: 3, borderRadius: 1 }}>
+                <CardContent>
+                    <Grid container spacing={2} alignItems="center">
+                        <Grid item xs={12} md={3}>
+                            <TextField
+                                fullWidth
+                                size="small"
+                                placeholder="Search reference, vendor, wallet"
+                                value={searchTerm}
+                                onChange={(event) => handleFilterChange(() => setSearchTerm(event.target.value))}
+                                InputProps={{
+                                    startAdornment: (
+                                        <InputAdornment position="start">
+                                            <Search fontSize="small" />
+                                        </InputAdornment>
+                                    ),
+                                }}
+                            />
+                        </Grid>
 
-            {/* Wallet Details Dialog */}
-            <Dialog open={walletDetailsDialogOpen} onClose={() => setWalletDetailsDialogOpen(false)} maxWidth="sm" fullWidth>
+                        <Grid item xs={12} md={2}>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>Credit/Debit</InputLabel>
+                                <Select
+                                    value={transactionType}
+                                    label="Credit/Debit"
+                                    onChange={(event) => handleFilterChange(() => setTransactionType(event.target.value as TransactionType | 'all'))}
+                                >
+                                    <MenuItem value="all">All Types</MenuItem>
+                                    <MenuItem value="credit">Credit</MenuItem>
+                                    <MenuItem value="debit">Debit</MenuItem>
+                                </Select>
+                            </FormControl>
+                        </Grid>
+
+                        <Grid item xs={12} md={2}>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>Wallet Type</InputLabel>
+                                <Select
+                                    value={walletType}
+                                    label="Wallet Type"
+                                    onChange={(event) => handleFilterChange(() => setWalletType(event.target.value as WalletType | 'all'))}
+                                >
+                                    <MenuItem value="all">All Wallets</MenuItem>
+                                    <MenuItem value="settlement">Settlement</MenuItem>
+                                    <MenuItem value="operations">Operations</MenuItem>
+                                    <MenuItem value="commission">Commission</MenuItem>
+                                    <MenuItem value="collection">Collection</MenuItem>
+                                    <MenuItem value="trading">Trading</MenuItem>
+                                </Select>
+                            </FormControl>
+                        </Grid>
+
+                        <Grid item xs={12} md={2}>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>Status</InputLabel>
+                                <Select
+                                    value={statusFilter}
+                                    label="Status"
+                                    onChange={(event) => handleFilterChange(() => setStatusFilter(event.target.value as TransactionStatus | 'all'))}
+                                >
+                                    <MenuItem value="all">All Status</MenuItem>
+                                    <MenuItem value="success">Success</MenuItem>
+                                    <MenuItem value="pending">Pending</MenuItem>
+                                    <MenuItem value="failed">Failed</MenuItem>
+                                </Select>
+                            </FormControl>
+                        </Grid>
+
+                        <Grid item xs={12} md={1.5}>
+                            <TextField
+                                fullWidth
+                                size="small"
+                                type="date"
+                                label="Start Date"
+                                value={startDate}
+                                onChange={(event) => handleFilterChange(() => setStartDate(event.target.value))}
+                                InputLabelProps={{ shrink: true }}
+                            />
+                        </Grid>
+
+                        <Grid item xs={12} md={1.5}>
+                            <TextField
+                                fullWidth
+                                size="small"
+                                type="date"
+                                label="End Date"
+                                value={endDate}
+                                onChange={(event) => handleFilterChange(() => setEndDate(event.target.value))}
+                                InputLabelProps={{ shrink: true }}
+                            />
+                        </Grid>
+
+                        <Grid item xs={12}>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
+                                <Chip label={`${filteredTransactions.length} transactions`} color="primary" variant="outlined" />
+                                <Chip label={`Credit: ${formatCurrency(creditBalance)}`} color="success" variant="outlined" />
+                                <Chip label={`Debit: ${formatCurrency(debitBalance)}`} color="error" variant="outlined" />
+                                <Button size="small" onClick={resetFilters}>Reset Filters</Button>
+                                <Button size="small" startIcon={<Download />} onClick={exportTransactions} disabled={!filteredTransactions.length}>
+                                    Export Filtered
+                                </Button>
+                            </Stack>
+                        </Grid>
+                    </Grid>
+                </CardContent>
+            </Card>
+
+            <Grid container spacing={3}>
+                <Grid item xs={12}>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 1, animation: 'tableSlideIn 340ms ease' }}>
+                        <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} mb={2}>
+                            <Box>
+                                <Typography variant="h6">Wallet Transactions</Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    Showing {filteredTransactions.length ? page * rowsPerPage + 1 : 0}-
+                                    {Math.min(filteredTransactions.length, page * rowsPerPage + rowsPerPage)} of {filteredTransactions.length}
+                                </Typography>
+                            </Box>
+                            <Chip label={`${rowsPerPage} per page`} variant="outlined" />
+                        </Stack>
+
+                        <TableContainer>
+                            <Table size="small">
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell>Date</TableCell>
+                                        <TableCell>Reference</TableCell>
+                                        <TableCell>Vendor</TableCell>
+                                        <TableCell>Wallet</TableCell>
+                                        <TableCell>Type</TableCell>
+                                        <TableCell>Category</TableCell>
+                                        <TableCell align="right">Amount</TableCell>
+                                        <TableCell align="right">Balance After</TableCell>
+                                        <TableCell>Status</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {paginatedTransactions.map((tx) => (
+                                        <TableRow key={tx.id} hover>
+                                            <TableCell>{formatDateTime(tx.created_at)}</TableCell>
+                                            <TableCell>
+                                                <Typography variant="body2" fontFamily="monospace">{tx.reference}</Typography>
+                                                <Typography variant="caption" color="text.secondary">{tx.counterparty}</Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Typography variant="subtitle2">{tx.vendor_name}</Typography>
+                                                <Typography variant="caption" color="text.secondary">{tx.vendor_level}</Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Typography variant="body2" fontFamily="monospace">{tx.wallet_key}</Typography>
+                                                <Chip label={walletTypeLabel(tx.wallet_type)} size="small" color={chipColor(tx.wallet_type)} variant="outlined" />
+                                            </TableCell>
+                                            <TableCell>
+                                                <Chip
+                                                    label={tx.type}
+                                                    size="small"
+                                                    color={chipColor(tx.type)}
+                                                    icon={tx.type === 'credit' ? <TrendingUp fontSize="small" /> : <TrendingDown fontSize="small" />}
+                                                />
+                                            </TableCell>
+                                            <TableCell>{tx.category}</TableCell>
+                                            <TableCell align="right">
+                                                <Typography fontWeight={700} color={tx.type === 'credit' ? 'success.main' : 'error.main'}>
+                                                    {tx.type === 'credit' ? '+' : '-'}
+                                                    {formatCurrency(tx.amount)}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell align="right">{formatCurrency(tx.balance_after)}</TableCell>
+                                            <TableCell>
+                                                <Chip label={tx.status} size="small" color={chipColor(tx.status)} />
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+
+                        <TablePagination
+                            component="div"
+                            count={filteredTransactions.length}
+                            page={page}
+                            onPageChange={(_, nextPage) => setPage(nextPage)}
+                            rowsPerPage={rowsPerPage}
+                            onRowsPerPageChange={(event) => {
+                                setRowsPerPage(Number(event.target.value));
+                                setPage(0);
+                            }}
+                            rowsPerPageOptions={[5, 8, 12, 20, 50]}
+                        />
+                    </Paper>
+                </Grid>
+
+                {/* <Grid item xs={12} lg={4}>
+                    <Card sx={{ borderRadius: 1 }}>
+                        <CardContent>
+                            <Typography variant="h6" mb={2}>Wallet Balances</Typography>
+                            <Stack spacing={1.5}>
+                                {wallets.map((wallet) => (
+                                    <Paper key={wallet.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                                        <Stack direction="row" justifyContent="space-between" spacing={2} alignItems="center">
+                                            <Box sx={{ minWidth: 0 }}>
+                                                <Typography variant="subtitle2">{wallet.owner_name}</Typography>
+                                                <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                                                    {wallet.key}
+                                                </Typography>
+                                                <Stack direction="row" spacing={1} mt={0.75} flexWrap="wrap">
+                                                    <Chip label={walletTypeLabel(wallet.type)} size="small" variant="outlined" />
+                                                    <Chip
+                                                        label={wallet.is_locked ? 'Locked' : 'Active'}
+                                                        size="small"
+                                                        color={wallet.is_locked ? 'error' : 'success'}
+                                                        icon={wallet.is_locked ? <Lock fontSize="small" /> : <LockOpen fontSize="small" />}
+                                                    />
+                                                </Stack>
+                                            </Box>
+
+                                            <Stack alignItems="flex-end" spacing={0.5}>
+                                                <Typography variant="subtitle2">{formatCurrency(wallet.balance)}</Typography>
+                                                <Tooltip title="View wallet details">
+                                                    <IconButton size="small" onClick={() => setSelectedWallet(wallet)}>
+                                                        <Info fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                            </Stack>
+                                        </Stack>
+                                    </Paper>
+                                ))}
+                            </Stack>
+                        </CardContent>
+                    </Card>
+                </Grid> */}
+            </Grid>
+
+            <Dialog open={Boolean(selectedWallet)} onClose={() => setSelectedWallet(null)} maxWidth="sm" fullWidth>
                 <DialogTitle>
                     <Stack direction="row" spacing={1} alignItems="center">
                         <AccountBalanceWallet color="primary" />
@@ -750,100 +1024,83 @@ const WalletManagement: React.FC = () => {
                     </Stack>
                 </DialogTitle>
                 <DialogContent>
-                    {selectedWalletDetails && (
+                    {selectedWallet && (
                         <Stack spacing={3} mt={1}>
-                            <Paper variant="outlined" sx={{ p: 3, bgcolor: 'primary.main', color: 'primary.contrastText' }}>
-                                <Typography variant="caption">Balance</Typography>
-                                <Typography variant="h3" fontWeight="bold">
-                                    {formatCurrency(selectedWalletDetails.balance)}
-                                </Typography>
+                            <Paper variant="outlined" sx={{ p: 3, bgcolor: 'primary.main', color: 'primary.contrastText', borderRadius: 1 }}>
+                                <Typography variant="caption">Wallet Balance</Typography>
+                                <Typography variant="h4" fontWeight={700}>{formatCurrency(selectedWallet.balance)}</Typography>
+                                <Typography variant="body2">{selectedWallet.owner_name}</Typography>
                             </Paper>
+
+                            <Grid container spacing={2}>
+                                <Grid item xs={12} md={6}>
+                                    <Typography variant="caption" color="text.secondary">Wallet Key</Typography>
+                                    <Typography fontFamily="monospace">{selectedWallet.key}</Typography>
+                                </Grid>
+                                <Grid item xs={12} md={6}>
+                                    <Typography variant="caption" color="text.secondary">Wallet Type</Typography>
+                                    <Box mt={0.5}>
+                                        <Chip label={walletTypeLabel(selectedWallet.type)} color={chipColor(selectedWallet.type)} />
+                                    </Box>
+                                </Grid>
+                                <Grid item xs={12} md={6}>
+                                    <Typography variant="caption" color="text.secondary">Daily Limit</Typography>
+                                    <Typography>{formatCurrency(selectedWallet.daily_limit)}</Typography>
+                                    <LinearProgress
+                                        variant="determinate"
+                                        value={Math.min(100, (selectedWallet.daily_spent / selectedWallet.daily_limit) * 100)}
+                                        sx={{ mt: 1, borderRadius: 1 }}
+                                    />
+                                </Grid>
+                                <Grid item xs={12} md={6}>
+                                    <Typography variant="caption" color="text.secondary">Monthly Limit</Typography>
+                                    <Typography>{formatCurrency(selectedWallet.monthly_limit)}</Typography>
+                                </Grid>
+                            </Grid>
 
                             <Divider />
 
-                            <Grid container spacing={2}>
-                                <Grid item xs={6}>
-                                    <Typography variant="caption" color="text.secondary">Wallet Key</Typography>
-                                    <Typography variant="body1" fontFamily="monospace">
-                                        {selectedWalletDetails.key}
-                                    </Typography>
-                                </Grid>
-                                <Grid item xs={6}>
-                                    <Typography variant="caption" color="text.secondary">Type</Typography>
-                                    <Box mt={0.5}>
-                                        <Chip label={selectedWalletDetails.type} color="primary" />
-                                    </Box>
-                                </Grid>
-                                {selectedWalletDetails.role && (
-                                    <Grid item xs={6}>
-                                        <Typography variant="caption" color="text.secondary">Role</Typography>
-                                        <Box mt={0.5}>
-                                            <Chip label={selectedWalletDetails.role} variant="outlined" />
-                                        </Box>
-                                    </Grid>
-                                )}
-                                <Grid item xs={6}>
-                                    <Typography variant="caption" color="text.secondary">Status</Typography>
-                                    <Box mt={0.5}>
-                                        <Chip
-                                            label={selectedWalletDetails.is_locked ? 'Locked' : 'Active'}
-                                            color={selectedWalletDetails.is_locked ? 'error' : 'success'}
-                                            icon={selectedWalletDetails.is_locked ? <Lock /> : <LockOpen />}
-                                        />
-                                    </Box>
-                                </Grid>
-                                {selectedWalletDetails.daily_limit && (
-                                    <Grid item xs={6}>
-                                        <Typography variant="caption" color="text.secondary">Daily Limit</Typography>
-                                        <Typography variant="body1">
-                                            {formatCurrency(selectedWalletDetails.daily_limit)}
-                                        </Typography>
-                                        {selectedWalletDetails.daily_spent && (
-                                            <LinearProgress
-                                                variant="determinate"
-                                                value={Math.min(100, (Number(selectedWalletDetails.daily_spent) / Number(selectedWalletDetails.daily_limit)) * 100)}
-                                                sx={{ mt: 1, borderRadius: 1 }}
-                                            />
-                                        )}
-                                    </Grid>
-                                )}
-                                {selectedWalletDetails.monthly_limit && (
-                                    <Grid item xs={6}>
-                                        <Typography variant="caption" color="text.secondary">Monthly Limit</Typography>
-                                        <Typography variant="body1">
-                                            {formatCurrency(selectedWalletDetails.monthly_limit)}
-                                        </Typography>
-                                    </Grid>
-                                )}
-                                <Grid item xs={12}>
-                                    <Typography variant="caption" color="text.secondary">Created</Typography>
-                                    <Typography variant="body1">
-                                        {new Date(selectedWalletDetails.created_at).toLocaleString()}
-                                    </Typography>
-                                </Grid>
-                            </Grid>
+                            <Box>
+                                <Typography variant="subtitle1" fontWeight={700} mb={1}>
+                                    Wallet Transactions ({selectedWalletTransactions.length})
+                                </Typography>
+                                <Stack spacing={1}>
+                                    {selectedWalletTransactions.slice(0, 5).map((tx) => (
+                                        <Paper key={tx.id} variant="outlined" sx={{ p: 1.5 }}>
+                                            <Stack direction="row" justifyContent="space-between" spacing={2}>
+                                                <Box>
+                                                    <Typography variant="subtitle2">{tx.reference}</Typography>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        {tx.category} - {formatDateTime(tx.created_at)}
+                                                    </Typography>
+                                                </Box>
+                                                <Typography fontWeight={700} color={tx.type === 'credit' ? 'success.main' : 'error.main'}>
+                                                    {tx.type === 'credit' ? '+' : '-'}
+                                                    {formatCurrency(tx.amount)}
+                                                </Typography>
+                                            </Stack>
+                                        </Paper>
+                                    ))}
+                                </Stack>
+                            </Box>
                         </Stack>
                     )}
                 </DialogContent>
-                <DialogActions sx={{ px: 3, pb: 2 }}>
-                    <Button onClick={() => setWalletDetailsDialogOpen(false)}>
-                        Close
-                    </Button>
-                    <Button
-                        variant="contained"
-                        onClick={() => {
-                            if (selectedWalletDetails) {
-                                handleTransferClick(selectedWalletDetails.id);
-                                setWalletDetailsDialogOpen(false);
-                            }
-                        }}
-                        disabled={!selectedWalletDetails || Number(selectedWalletDetails.balance) <= 0 || selectedWalletDetails.is_locked}
-                        startIcon={<Send />}
-                    >
-                        Transfer
-                    </Button>
+                <DialogActions>
+                    <Button onClick={() => setSelectedWallet(null)}>Close</Button>
                 </DialogActions>
             </Dialog>
+
+            <Snackbar
+                open={Boolean(success)}
+                autoHideDuration={3000}
+                onClose={() => setSuccess(null)}
+                anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+            >
+                <Alert severity="success" onClose={() => setSuccess(null)}>
+                    {success}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 };

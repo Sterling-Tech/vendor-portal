@@ -20,6 +20,7 @@ import {
     Tooltip,
     Chip,
     Stack,
+    Button,
 } from '@mui/material';
 import {
     Menu as MenuIcon,
@@ -38,12 +39,12 @@ import {
     PhoneAndroid,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAppDispatch, useAppSelector } from '../../store/hooks';
-import { logoutUser } from '../../store/slices/authSlice';
-import TenantSwitcher from '../TenantSwitcher/TenantSwitcher';
-import DashboardModal from '../DashboardModal/DashboardModal';
-import { useVendorHierarchy } from '../../contexts/VendorContext';
-import { useEnsureUserApiKey } from '../../hooks/useEnsureUserApiKey';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { logoutUser } from '../store/slices/authSlice';
+import TenantSwitcher from '../components/TenantSwitcher/TenantSwitcher';
+import DashboardModal from '../components/DashboardModal/DashboardModal';
+import { useVendorHierarchy } from '../contexts/VendorContext';
+import { useEnsureUserApiKey } from '../hooks/useEnsureUserApiKey';
 
 const drawerWidth = 240;
 
@@ -77,7 +78,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null);
     const [dashboardModalOpen, setDashboardModalOpen] = useState(false);
-
+    console.log(user , "users ooh")
     useEffect(() => {
         const savedTenant = localStorage.getItem('currentTenant');
         if (savedTenant) {
@@ -107,15 +108,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         setTenantId(tenant.id);
     };
 
-    const menuItems = [
+    // Top menus (AppBar)
+    const topMenuItems = [
         { text: 'Dashboard', icon: <Dashboard />, path: '/tenants/dashboard' },
+        // { text: 'Analytics', icon: <Analytics />, path: '/analytics' },
+        { text: 'Transactions', icon: <Receipt />, path: '/transactions' },
+        // { text: 'Prepaid Services', icon: <PhoneAndroid />, path: '/prepaid' },
+    ];
+
+    // Left side menus (drawer)
+    const leftMenuItems = [
         { text: 'Vendors', icon: <Business />, path: '/tenants/vendors' },
         { text: 'Wallets', icon: <AccountBalance />, path: '/tenants/wallets' },
-        { text: 'Prepaid', icon: <PhoneAndroid />, path: '/prepaid' },
-        { text: 'Agents', icon: <PeopleAlt />, path: '/agents' },
+        // { text: 'Agents', icon: <PeopleAlt />, path: '/agents' },
         { text: 'POS', icon: <PointOfSale />, path: '/pos' },
-        { text: 'Transactions', icon: <Receipt />, path: '/transactions' },
-        { text: 'Analytics', icon: <Analytics />, path: '/analytics' },
         { text: 'Settings', icon: <Settings />, path: '/settings' },
     ];
 
@@ -144,6 +150,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         }
     };
 
+    const navItemSx = {
+        '&.Mui-selected': {
+            backgroundColor: 'primary.main',
+            color: 'white',
+            '&:hover': {
+                backgroundColor: 'primary.dark',
+            },
+            '& .MuiListItemIcon-root': {
+                color: 'white',
+            },
+        },
+    };
+
     const drawer = (
         <Box>
             <Toolbar>
@@ -157,28 +176,41 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 </Box>
             </Toolbar>
             <Divider />
+            {/* On mobile: show top menu items first, then left menu items */}
+            {isMobile && (
+                <>
+                    <List>
+                        {topMenuItems.map((item) => (
+                            <ListItem key={item.text} disablePadding>
+                                <ListItemButton
+                                    selected={
+                                        location.pathname === item.path ||
+                                        location.pathname.startsWith(`${item.path}/`)
+                                    }
+                                    onClick={() => handleNavigation(item.path)}
+                                    sx={navItemSx}
+                                >
+                                    <ListItemIcon>{item.icon}</ListItemIcon>
+                                    <ListItemText primary={item.text} />
+                                </ListItemButton>
+                            </ListItem>
+                        ))}
+                    </List>
+                    <Divider />
+                </>
+            )}
             <List>
-                {menuItems.map((item) => (
+                {leftMenuItems.map((item) => (
                     <ListItem key={item.text} disablePadding>
                         <ListItemButton
-                            selected={location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)}
+                            selected={
+                                location.pathname === item.path ||
+                                location.pathname.startsWith(`${item.path}/`)
+                            }
                             onClick={() => handleNavigation(item.path)}
-                            sx={{
-                                '&.Mui-selected': {
-                                    backgroundColor: 'primary.main',
-                                    color: 'white',
-                                    '&:hover': {
-                                        backgroundColor: 'primary.dark',
-                                    },
-                                    '& .MuiListItemIcon-root': {
-                                        color: 'white',
-                                    },
-                                },
-                            }}
+                            sx={navItemSx}
                         >
-                            <ListItemIcon>
-                                {item.icon}
-                            </ListItemIcon>
+                            <ListItemIcon>{item.icon}</ListItemIcon>
                             <ListItemText primary={item.text} />
                         </ListItemButton>
                     </ListItem>
@@ -206,19 +238,51 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     >
                         <MenuIcon />
                     </IconButton>
-                    <Stack direction="row" alignItems="center" spacing={1} sx={{ flexGrow: 1 }}>
-                        <Typography variant="h6" noWrap component="div">
-                            Vendor Portal
-                        </Typography>
+                    <Typography variant="h6" noWrap component="div" sx={{ mr: 2 }}>
+                        Vendor Portal
+                    </Typography>
+                    <Stack
+                        direction="row"
+                        alignItems="center"
+                        spacing={0.5}
+                        sx={{
+                            flexGrow: 1,
+                            display: { xs: 'none', sm: 'flex' },
+                            '& .MuiButton-root': { minWidth: 'auto', px: 1.5 },
+                        }}
+                    >
+                        {topMenuItems.map((item) => {
+                            const isSelected =
+                                location.pathname === item.path ||
+                                location.pathname.startsWith(`${item.path}/`);
+                            return (
+                                <Button
+                                    key={item.text}
+                                    color="inherit"
+                                    startIcon={item.icon}
+                                    onClick={() => handleNavigation(item.path)}
+                                    sx={{
+                                        opacity: isSelected ? 1 : 0.85,
+                                        borderBottom: isSelected ? 2 : 0,
+                                        borderColor: 'inherit',
+                                        borderRadius: 0,
+                                        '&:hover': { opacity: 1 },
+                                    }}
+                                >
+                                    {item.text}
+                                </Button>
+                            );
+                        })}
+                    </Stack>
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ display: { xs: 'none', md: 'flex' } }}>
                         <Chip
                             icon={<Palette fontSize="small" />}
                             label="Brand Mode"
                             size="small"
                             color="secondary"
-                            sx={{ display: { xs: 'none', md: 'inline-flex' } }}
                         />
                         {currentTenant && (
-                            <Typography variant="caption" sx={{ ml: 2, opacity: 0.7 }}>
+                            <Typography variant="caption" sx={{ opacity: 0.7 }}>
                                 ({currentTenant.name})
                             </Typography>
                         )}

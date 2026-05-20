@@ -1,15 +1,26 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { clearApiKeyCredentials } from '../../utils/apiKeyStorage';
 
+export interface Related_vendor {
+    account_status?: string;
+    business_name?: string;
+    email?: string;
+    hierachy?: string;
+    id?: string;
+}
+
 export interface User {
     id: string;
     email: string;
     firstName?: string;
     lastName?: string;
+    is_2fa_enabled:boolean;
+    related_vend?:Related_vendor;
     first_name?: string;
     last_name?: string;
     phone?: string;
     role?: string;
+    user_type?: string;
 }
 
 interface AuthState {

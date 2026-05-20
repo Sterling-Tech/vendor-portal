@@ -14,7 +14,7 @@ import WalletManagement from './pages/Tenants/Wallets/WalletManagement';
 import TransactionManagement from './pages/Transactions/TransactionManagement';
 import Analytics from './pages/Analytics/Analytics';
 import Settings from './pages/Settings/Settings';
-import Layout from './components/Layout/Layout';
+import Layout from './components/layout';
 import PointOfSale from './pages/POS/PointOfSale';
 import AgentConsole from './pages/Agents/AgentConsole';
 import PrepaidServices from './pages/Prepaid/PrepaidServices';

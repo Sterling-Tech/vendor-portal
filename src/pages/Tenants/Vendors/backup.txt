@@ -1,0 +1,1175 @@
+ import React, { useCallback, useMemo, useState } from 'react'; 
+import {
+    Avatar,
+    Box,
+    Button,
+    Card,
+    CardContent,
+    Chip,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
+    Divider,
+    FormControl,
+    Grid,
+    IconButton,
+    InputAdornment,
+    InputLabel,
+    List,
+    ListItemButton,
+    ListItemText,
+    MenuItem,
+    Paper,
+    Select,
+    Snackbar,
+    Stack,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TablePagination,
+    TableRow,
+    TextField,
+    Tooltip,
+    Typography,
+} from '@mui/material';
+import {
+    AccountBalance,
+    Add,
+    ArrowBack,
+    ArrowDropDown,
+    ArrowForward,
+    Business,
+    CheckCircle,
+    ChevronRight,
+    Delete,
+    Domain,
+    Edit,
+    People,
+    PersonAdd,
+    Receipt,
+    Refresh,
+    Save as SaveIcon,
+    Search,
+    Warning as WarningIcon,
+} from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
+
+type OrgLevel = 'vendor' | 'sub_vendor' | 'agent' | 'cashier';
+type OrgStatus = 'active' | 'suspended' | 'invited' | 'review';
+type ChipColor = 'default' | 'primary' | 'secondary' | 'success' | 'warning' | 'info' | 'error';
+type MuiColor = 'primary' | 'secondary' | 'success' | 'warning' | 'info' | 'error';
+
+type Tenant = {
+    id: string;
+    name: string;
+    domain: string;
+    slug: string;
+};
+
+type VendorOrg = {
+    id: string;
+    name: string;
+    slug: string;
+    level: OrgLevel;
+    status: OrgStatus;
+    parent: string | null;
+    created_at: string;
+    location: string;
+    manager_email: string;
+    wallet_balance: number;
+    transaction_value: number;
+    transactions: number;
+    users: number;
+    children?: VendorOrg[];
+};
+
+type FlatOrg = VendorOrg & {
+    depth: number;
+    path: string[];
+    childCount: number;
+};
+
+type Binding = {
+    id: string;
+    user_email: string;
+    role: OrgLevel;
+    status: OrgStatus;
+};
+
+type Wallet = {
+    id: string;
+    key: string;
+    type: string;
+    role?: string;
+    balance: number;
+};
+
+type Transaction = {
+    id: string;
+    reference: string;
+    org_name: string;
+    type: string;
+    value: number;
+    status: 'success' | 'pending' | 'failed';
+    created_at: string;
+};
+
+type OrgForm = {
+    name: string;
+    level: OrgLevel;
+    status: OrgStatus;
+    parent: string | null;
+    location: string;
+    manager_email: string;
+};
+
+const LEVEL_OPTIONS: { label: string; value: OrgLevel }[] = [
+    { label: 'Vendor Admin', value: 'vendor' },
+    { label: 'Sub-vendor', value: 'sub_vendor' },
+    { label: 'Agent', value: 'agent' },
+    { label: 'Cashier', value: 'cashier' },
+];
+
+const STATUS_OPTIONS: { label: string; value: OrgStatus }[] = [
+    { label: 'Active', value: 'active' },
+    { label: 'Suspended', value: 'suspended' },
+    { label: 'Invited', value: 'invited' },
+    { label: 'Review', value: 'review' },
+];
+
+const TENANTS: Tenant[] = [
+    { id: 'tenant-apexpay', name: 'ApexPay Business Services', domain: 'apexpay.ng', slug: 'apexpay' },
+    { id: 'tenant-northbridge', name: 'Northbridge Commerce', domain: 'northbridge.africa', slug: 'northbridge' },
+    { id: 'tenant-rivermart', name: 'RiverMart Distribution', domain: 'rivermart.co', slug: 'rivermart' },
+];
+
+const daysAgo = (days: number) => {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return date.toISOString();
+};
+
+const formatCurrency = (value: number | string) =>
+    new Intl.NumberFormat('en-NG', {
+        style: 'currency',
+        currency: 'NGN',
+        maximumFractionDigits: 2,
+    }).format(Number(value || 0));
+
+const formatNumber = (value: number | string) => new Intl.NumberFormat('en-NG').format(Number(value || 0));
+
+const formatDate = (value: string) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? new Date().toLocaleDateString() : date.toLocaleDateString();
+};
+
+const slugify = (value: string) =>
+    value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+
+const statusColor = (status: string): ChipColor => {
+    switch (status) {
+        case 'active':
+            return 'success';
+        case 'suspended':
+            return 'warning';
+        case 'invited':
+            return 'info';
+        case 'review':
+            return 'secondary';
+        default:
+            return 'default';
+    }
+};
+
+const levelColor = (level: OrgLevel): ChipColor => {
+    switch (level) {
+        case 'vendor':
+            return 'primary';
+        case 'sub_vendor':
+            return 'success';
+        case 'agent':
+            return 'warning';
+        case 'cashier':
+            return 'info';
+        default:
+            return 'default';
+    }
+};
+
+const levelLabel = (level: OrgLevel) => LEVEL_OPTIONS.find((option) => option.value === level)?.label || level;
+
+const nextChildLevel = (level: OrgLevel): OrgLevel => {
+    if (level === 'vendor') return 'sub_vendor';
+    if (level === 'sub_vendor') return 'agent';
+    return 'cashier';
+};
+
+const countChildren = (nodes: VendorOrg[] = []): number =>
+    nodes.reduce((total, node) => total + 1 + countChildren(node.children || []), 0);
+
+const flattenTree = (nodes: VendorOrg[], path: string[] = [], depth = 0): FlatOrg[] =>
+    nodes.flatMap((node) => [
+        { ...node, path, depth, childCount: countChildren(node.children || []) },
+        ...flattenTree(node.children || [], [...path, node.name], depth + 1),
+    ]);
+
+const findOrg = (nodes: VendorOrg[], id: string | null): VendorOrg | null => {
+    if (!id) return null;
+    for (const node of nodes) {
+        if (node.id === id) return node;
+        const child = findOrg(node.children || [], id);
+        if (child) return child;
+    }
+    return null;
+};
+
+const addOrgToTree = (nodes: VendorOrg[], parentId: string | null, newOrg: VendorOrg): VendorOrg[] => {
+    if (!parentId) return [newOrg, ...nodes];
+
+    return nodes.map((node) => {
+        if (node.id === parentId) {
+            return { ...node, children: [newOrg, ...(node.children || [])] };
+        }
+        return { ...node, children: addOrgToTree(node.children || [], parentId, newOrg) };
+    });
+};
+
+const updateOrgInTree = (nodes: VendorOrg[], id: string, patch: Partial<VendorOrg>): VendorOrg[] =>
+    nodes.map((node) => {
+        if (node.id === id) return { ...node, ...patch };
+        return { ...node, children: updateOrgInTree(node.children || [], id, patch) };
+    });
+
+const removeOrgFromTree = (nodes: VendorOrg[], id: string): VendorOrg[] =>
+    nodes
+        .filter((node) => node.id !== id)
+        .map((node) => ({ ...node, children: removeOrgFromTree(node.children || [], id) }));
+
+const makeWallets = (org: VendorOrg): Wallet[] => [
+    { id: ${org.id}-settlement, key: ${org.slug}-settlement, type: 'Settlement', role: levelLabel(org.level), balance: Math.round(org.wallet_balance * 0.62) },
+    { id: ${org.id}-operations, key: ${org.slug}-operations, type: 'Operations', role: levelLabel(org.level), balance: Math.round(org.wallet_balance * 0.25) },
+    { id: ${org.id}-commission, key: ${org.slug}-commission, type: 'Commission', role: levelLabel(org.level), balance: Math.round(org.wallet_balance * 0.13) },
+];
+
+const makeTransactions = (org: VendorOrg): Transaction[] => [
+    { id: ${org.id}-tx-1, reference: ${org.slug.toUpperCase()}-001, org_name: org.name, type: 'Wallet Funding', value: Math.round(org.transaction_value * 0.18), status: 'success', created_at: daysAgo(0) },
+    { id: ${org.id}-tx-2, reference: ${org.slug.toUpperCase()}-002, org_name: org.name, type: 'Airtime Purchase', value: Math.round(org.transaction_value * 0.08), status: 'success', created_at: daysAgo(1) },
+    { id: ${org.id}-tx-3, reference: ${org.slug.toUpperCase()}-003, org_name: org.name, type: 'Data Bundle', value: Math.round(org.transaction_value * 0.05), status: 'pending', created_at: daysAgo(2) },
+    { id: ${org.id}-tx-4, reference: ${org.slug.toUpperCase()}-004, org_name: org.name, type: 'Bill Payment', value: Math.round(org.transaction_value * 0.04), status: 'success', created_at: daysAgo(3) },
+];
+
+const INITIAL_TREE: VendorOrg[] = [
+    {
+        id: 'org-hq',
+        name: 'ApexPay Vendor HQ',
+        slug: 'apexpay-vendor-hq',
+        level: 'vendor',
+        status: 'active',
+        parent: null,
+        created_at: daysAgo(48),
+        location: 'Lagos',
+        manager_email: 'admin@apexpay.ng',
+        wallet_balance: 182450000,
+        transaction_value: 98560000,
+        transactions: 24890,
+        users: 216,
+        children: [
+            {
+                id: 'org-lagos',
+                name: 'Lagos Distribution Network',
+                slug: 'lagos-distribution-network',
+                level: 'sub_vendor',
+                status: 'active',
+                parent: 'org-hq',
+                created_at: daysAgo(34),
+                location: 'Lagos',
+                manager_email: 'lagos.ops@apexpay.ng',
+                wallet_balance: 54800000,
+                transaction_value: 34150000,
+                transactions: 9210,
+                users: 74,
+                children: [
+                    {
+                        id: 'org-ikeja-agent',
+                        name: 'Ikeja Express Agent',
+                        slug: 'ikeja-express-agent',
+                        level: 'agent',
+                        status: 'active',
+                        parent: 'org-lagos',
+                        created_at: daysAgo(22),
+                        location: 'Ikeja',
+                        manager_email: 'ikeja.agent@apexpay.ng',
+                        wallet_balance: 8750000,
+                        transaction_value: 7850000,
+                        transactions: 2180,
+                        users: 18,
+                        children: [
+                            { id: 'org-counter-01', name: 'Counter 01 - Ikeja', slug: 'counter-01-ikeja', level: 'cashier', status: 'active', parent: 'org-ikeja-agent', created_at: daysAgo(12), location: 'Ikeja', manager_email: 'kemi@apexpay.ng', wallet_balance: 1850000, transaction_value: 2160000, transactions: 640, users: 4 },
+                            { id: 'org-counter-02', name: 'Counter 02 - Ikeja', slug: 'counter-02-ikeja', level: 'cashier', status: 'active', parent: 'org-ikeja-agent', created_at: daysAgo(10), location: 'Ikeja', manager_email: 'samuel@apexpay.ng', wallet_balance: 1420000, transaction_value: 1740000, transactions: 510, users: 3 },
+                        ],
+                    },
+                    { id: 'org-lekki-agent', name: 'Lekki Retail Agent', slug: 'lekki-retail-agent', level: 'agent', status: 'active', parent: 'org-lagos', created_at: daysAgo(18), location: 'Lekki', manager_email: 'lekki.agent@apexpay.ng', wallet_balance: 5200000, transaction_value: 4380000, transactions: 1320, users: 11 },
+                ],
+            },
+            {
+                id: 'org-abuja',
+                name: 'Abuja Service Cluster',
+                slug: 'abuja-service-cluster',
+                level: 'sub_vendor',
+                status: 'active',
+                parent: 'org-hq',
+                created_at: daysAgo(30),
+                location: 'Abuja',
+                manager_email: 'abuja.ops@apexpay.ng',
+                wallet_balance: 32600000,
+                transaction_value: 21750000,
+                transactions: 5840,
+                users: 43,
+                children: [
+                    { id: 'org-wuse-agent', name: 'Wuse Agent Desk', slug: 'wuse-agent-desk', level: 'agent', status: 'active', parent: 'org-abuja', created_at: daysAgo(16), location: 'Wuse', manager_email: 'wuse.agent@apexpay.ng', wallet_balance: 6420000, transaction_value: 5620000, transactions: 1680, users: 12 },
+                ],
+            },
+        ],
+    },
+    {
+        id: 'org-northbridge',
+        name: 'Northbridge Commerce HQ',
+        slug: 'northbridge-commerce-hq',
+        level: 'vendor',
+        status: 'active',
+        parent: null,
+        created_at: daysAgo(42),
+        location: 'Kano',
+        manager_email: 'ops@northbridge.africa',
+        wallet_balance: 76500000,
+        transaction_value: 46100000,
+        transactions: 13240,
+        users: 84,
+        children: [
+            { id: 'org-kano-sub', name: 'Kano Wholesale Network', slug: 'kano-wholesale-network', level: 'sub_vendor', status: 'active', parent: 'org-northbridge', created_at: daysAgo(28), location: 'Kano', manager_email: 'kano@northbridge.africa', wallet_balance: 18800000, transaction_value: 11200000, transactions: 2840, users: 24 },
+            { id: 'org-kaduna-sub', name: 'Kaduna Retail Cluster', slug: 'kaduna-retail-cluster', level: 'sub_vendor', status: 'review', parent: 'org-northbridge', created_at: daysAgo(21), location: 'Kaduna', manager_email: 'kaduna@northbridge.africa', wallet_balance: 9400000, transaction_value: 6200000, transactions: 1640, users: 16 },
+        ],
+    },
+    {
+        id: 'org-rivermart',
+        name: 'RiverMart Distribution HQ',
+        slug: 'rivermart-distribution-hq',
+        level: 'vendor',
+        status: 'review',
+        parent: null,
+        created_at: daysAgo(36),
+        location: 'Port Harcourt',
+        manager_email: 'support@rivermart.co',
+        wallet_balance: 28400000,
+        transaction_value: 17500000,
+        transactions: 6210,
+        users: 42,
+        children: [
+            { id: 'org-ph', name: 'Port Harcourt Merchant Hub', slug: 'port-harcourt-merchant-hub', level: 'sub_vendor', status: 'active', parent: 'org-rivermart', created_at: daysAgo(19), location: 'Port Harcourt', manager_email: 'ph@rivermart.co', wallet_balance: 21400000, transaction_value: 14800000, transactions: 3980, users: 22 },
+        ],
+    },
+];
+
+const INITIAL_BINDINGS: Record<string, Binding[]> = {
+    'org-hq': [
+        { id: 'bind-1', user_email: 'admin@apexpay.ng', role: 'vendor', status: 'active' },
+        { id: 'bind-2', user_email: 'finance@apexpay.ng', role: 'vendor', status: 'active' },
+    ],
+    'org-lagos': [
+        { id: 'bind-3', user_email: 'lagos.ops@apexpay.ng', role: 'sub_vendor', status: 'active' },
+        { id: 'bind-4', user_email: 'supervisor@apexpay.ng', role: 'sub_vendor', status: 'active' },
+    ],
+    'org-ikeja-agent': [
+        { id: 'bind-5', user_email: 'ikeja.agent@apexpay.ng', role: 'agent', status: 'active' },
+    ],
+};
+
+const makeForm = (org?: VendorOrg | null, parent: string | null = null, level: OrgLevel = 'vendor'): OrgForm => ({
+    name: org?.name || '',
+    level: org?.level || level,
+    status: org?.status || 'active',
+    parent: org?.parent ?? parent,
+    location: org?.location || '',
+    manager_email: org?.manager_email || '',
+});
+
+const StatCard = ({ title, value, icon, color = 'primary' }: { title: string; value: React.ReactNode; icon: React.ReactNode; color?: MuiColor }) => (
+    <Card sx={{ height: '100%', borderRadius: 1 }}>
+        <CardContent>
+            <Stack direction="row" justifyContent="space-between" spacing={2}>
+                <Box>
+                    <Typography variant="body2" color="text.secondary">{title}</Typography>
+                    <Typography variant="h5" fontWeight={700}>{value}</Typography>
+                </Box>
+                <Avatar sx={{ bgcolor: ${color}.light, color: ${color}.main }}>{icon}</Avatar>
+            </Stack>
+        </CardContent>
+    </Card>
+);
+
+const VendorManagement: React.FC = () => {
+    const navigate = useNavigate();
+
+    const [tenantId, setTenantId] = useState(TENANTS[0].id);
+    const [tree, setTree] = useState<VendorOrg[]>(INITIAL_TREE);
+    const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+    const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set(['org-hq', 'org-lagos', 'org-abuja', 'org-northbridge', 'org-rivermart']));
+    const [bindingsByOrg, setBindingsByOrg] = useState<Record<string, Binding[]>>(INITIAL_BINDINGS);
+    const [lastUpdated, setLastUpdated] = useState(new Date());
+
+    const [searchTerm, setSearchTerm] = useState('');
+    const [tenantSearchTerm, setTenantSearchTerm] = useState('');
+    const [levelFilter, setLevelFilter] = useState<OrgLevel | 'all'>('all');
+    const [statusFilter, setStatusFilter] = useState<OrgStatus | 'all'>('all');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [page, setPage] = useState(0);
+    const [rowsPerPage, setRowsPerPage] = useState(8);
+
+    const [createDialogOpen, setCreateDialogOpen] = useState(false);
+    const [editDialogOpen, setEditDialogOpen] = useState(false);
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [bindingDialogOpen, setBindingDialogOpen] = useState(false);
+    const [formState, setFormState] = useState<OrgForm>(makeForm());
+    const [bindingForm, setBindingForm] = useState({ user_email: '', role: 'vendor' as OrgLevel });
+    const [success, setSuccess] = useState<string | null>(null);
+
+    const selectedTenant = TENANTS.find((tenant) => tenant.id === tenantId) || TENANTS[0];
+    const filteredTenants = TENANTS.filter((tenant) => {
+        const term = tenantSearchTerm.trim().toLowerCase();
+        if (!term) return true;
+        return tenant.name.toLowerCase().includes(term) || tenant.domain.toLowerCase().includes(term) || tenant.slug.toLowerCase().includes(term);
+    });
+
+    const flatOrgs = useMemo(() => flattenTree(tree), [tree]);
+    const selectedOrg = useMemo(() => (selectedOrgId ? findOrg(tree, selectedOrgId) : null), [selectedOrgId, tree]);
+
+    const filteredOrgs = useMemo(() => {
+        const term = searchTerm.trim().toLowerCase();
+
+        return flatOrgs.filter((org) => {
+            const matchesSearch =
+                !term ||
+                org.name.toLowerCase().includes(term) ||
+                org.slug.toLowerCase().includes(term) ||
+                org.location.toLowerCase().includes(term) ||
+                org.manager_email.toLowerCase().includes(term);
+
+            const matchesLevel = levelFilter === 'all' || org.level === levelFilter;
+            const matchesStatus = statusFilter === 'all' || org.status === statusFilter;
+
+            const created = new Date(org.created_at).getTime();
+            const matchesStart = !startDate || created >= new Date(startDate).getTime();
+            const matchesEnd = !endDate || created <= new Date(${endDate}T23:59:59).getTime();
+
+            return matchesSearch && matchesLevel && matchesStatus && matchesStart && matchesEnd;
+        });
+    }, [endDate, flatOrgs, levelFilter, searchTerm, startDate, statusFilter]);
+
+    const paginatedOrgs = useMemo(
+        () => filteredOrgs.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+        [filteredOrgs, page, rowsPerPage]
+    );
+
+    const stats = useMemo(() => {
+        const totalBalance = flatOrgs.reduce((sum, org) => sum + org.wallet_balance, 0);
+        const totalTransactions = flatOrgs.reduce((sum, org) => sum + org.transactions, 0);
+
+        return {
+            total: flatOrgs.length,
+            vendors: flatOrgs.filter((org) => org.level === 'vendor').length,
+            subVendors: flatOrgs.filter((org) => org.level === 'sub_vendor').length,
+            agents: flatOrgs.filter((org) => org.level === 'agent').length,
+            cashiers: flatOrgs.filter((org) => org.level === 'cashier').length,
+            active: flatOrgs.filter((org) => org.status === 'active').length,
+            totalBalance,
+            totalTransactions,
+        };
+    }, [flatOrgs]);
+
+    const selectedWallets = selectedOrg ? makeWallets(selectedOrg) : [];
+    const selectedTransactions = selectedOrg ? makeTransactions(selectedOrg) : [];
+    const selectedBindings = selectedOrg ? bindingsByOrg[selectedOrg.id] || [
+        { id: ${selectedOrg.id}-manager, user_email: selectedOrg.manager_email, role: selectedOrg.level, status: selectedOrg.status },
+    ] : [];
+
+    const totalSelectedWalletBalance = selectedWallets.reduce((sum, wallet) => sum + wallet.balance, 0);
+
+    const resetFilters = () => {
+        setSearchTerm('');
+        setLevelFilter('all');
+        setStatusFilter('all');
+        setStartDate('');
+        setEndDate('');
+        setPage(0);
+    };
+
+    const toggleExpanded = (id: string) => {
+        setExpandedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const openCreateDialog = (parentId: string | null = null, level: OrgLevel = 'vendor') => {
+        setFormState(makeForm(null, parentId, level));
+        setCreateDialogOpen(true);
+    };
+
+    const openEditDialog = () => {
+        if (!selectedOrg) return;
+        setFormState(makeForm(selectedOrg));
+        setEditDialogOpen(true);
+    };
+
+    const handleCreateSubmit = () => {
+        const name = formState.name.trim() || 'New Organisation';
+        const slug = slugify(name) || org-${Date.now()};
+        const newOrg: VendorOrg = {
+            id: ${slug}-${Date.now()},
+            name,
+            slug,
+            level: formState.level,
+            status: formState.status,
+            parent: formState.parent,
+            created_at: new Date().toISOString(),
+            location: formState.location.trim() || 'Lagos',
+            manager_email: formState.manager_email.trim() || manager@${slug}.local,
+            wallet_balance: 2500000,
+            transaction_value: 900000,
+            transactions: 120,
+            users: 3,
+            children: [],
+        };
+
+        setTree((prev) => addOrgToTree(prev, formState.parent, newOrg));
+        setSelectedOrgId(newOrg.id);
+        setCreateDialogOpen(false);
+        setSuccess('Organisation created successfully');
+    };
+
+    const handleEditSubmit = () => {
+        if (!selectedOrg) return;
+
+        setTree((prev) =>
+            updateOrgInTree(prev, selectedOrg.id, {
+                name: formState.name.trim() || selectedOrg.name,
+                slug: slugify(formState.name) || selectedOrg.slug,
+                level: formState.level,
+                status: formState.status,
+                location: formState.location.trim() || selectedOrg.location,
+                manager_email: formState.manager_email.trim() || selectedOrg.manager_email,
+            })
+        );
+
+        setEditDialogOpen(false);
+        setSuccess('Organisation updated successfully');
+    };
+
+    const handleDeleteSubmit = () => {
+        if (!selectedOrg) return;
+
+        setTree((prev) => removeOrgFromTree(prev, selectedOrg.id));
+        setSelectedOrgId(null);
+        setDeleteDialogOpen(false);
+        setSuccess('Organisation deleted successfully');
+    };
+
+    const handleBindingSubmit = () => {
+        if (!selectedOrg || !bindingForm.user_email.trim()) return;
+
+        const newBinding: Binding = {
+            id: binding-${Date.now()},
+            user_email: bindingForm.user_email.trim(),
+            role: bindingForm.role,
+            status: 'active',
+        };
+
+        setBindingsByOrg((prev) => ({
+            ...prev,
+            [selectedOrg.id]: [newBinding, ...(prev[selectedOrg.id] || [])],
+        }));
+        setBindingForm({ user_email: '', role: 'vendor' });
+        setBindingDialogOpen(false);
+        setSuccess('User assigned successfully');
+    };
+
+    const toggleBindingStatus = (bindingId: string) => {
+        if (!selectedOrg) return;
+
+        setBindingsByOrg((prev) => ({
+            ...prev,
+            [selectedOrg.id]: (prev[selectedOrg.id] || selectedBindings).map((binding) =>
+                binding.id === bindingId
+                    ? { ...binding, status: binding.status === 'active' ? 'suspended' : 'active' }
+                    : binding
+            ),
+        }));
+    };
+
+    const removeBinding = (bindingId: string) => {
+        if (!selectedOrg) return;
+
+        setBindingsByOrg((prev) => ({
+            ...prev,
+            [selectedOrg.id]: (prev[selectedOrg.id] || selectedBindings).filter((binding) => binding.id !== bindingId),
+        }));
+        setSuccess('User removed from organisation');
+    };
+
+    const handleSelectOrg = useCallback((orgId: string) => {
+        setSelectedOrgId(orgId);
+
+        if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+            window.setTimeout(() => {
+                document.getElementById('vendor-detail-panel')?.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start',
+                });
+            }, 80);
+        }
+    }, []);
+
+    const renderTree = (nodes: VendorOrg[], depth = 0): React.ReactNode => (
+        <List disablePadding>
+            {nodes.map((node) => {
+                const hasChildren = Boolean(node.children?.length);
+                const isExpanded = expandedIds.has(node.id);
+
+                return (
+                    <Box key={node.id}>
+                        <ListItemButton
+                            selected={node.id === selectedOrgId}
+                            onClick={() => handleSelectOrg(node.id)}
+                            sx={{ pl: 2 + depth * 2 }}
+                        >
+                            {hasChildren ? (
+                                <IconButton
+                                    size="small"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        toggleExpanded(node.id);
+                                    }}
+                                >
+                                    {isExpanded ? <ArrowDropDown /> : <ChevronRight />}
+                                </IconButton>
+                            ) : (
+                                <Box sx={{ width: 32 }} />
+                            )}
+                            <ListItemText
+                                primary={node.name}
+                                secondary={
+                                    <Stack direction="row" spacing={1} mt={0.5} flexWrap="wrap">
+                                        <Chip label={levelLabel(node.level)} size="small" color={levelColor(node.level)} variant="outlined" />
+                                        <Chip label={node.status} size="small" color={statusColor(node.status)} />
+                                    </Stack>
+                                }
+                            />
+                        </ListItemButton>
+                        {hasChildren && isExpanded && renderTree(node.children || [], depth + 1)}
+                    </Box>
+                );
+            })}
+        </List>
+    );
+
+    return (
+        <Box
+            p={{ xs: 2, md: 3 }}
+            sx={{
+                '@keyframes tableSlideIn': {
+                    from: { opacity: 0, transform: 'translateX(-28px)' },
+                    to: { opacity: 1, transform: 'translateX(0)' },
+                },
+                '@keyframes detailSlideIn': {
+                    from: { opacity: 0, transform: 'translateX(36px)' },
+                    to: { opacity: 1, transform: 'translateX(0)' },
+                },
+            }}
+        >
+            <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} spacing={2} mb={3}>
+                <Box>
+                    <Typography variant="h4">Vendor Hierarchy</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        {selectedTenant.name} - updated {lastUpdated.toLocaleTimeString()}
+                    </Typography>
+                </Box>
+                <Stack direction="row" spacing={1}>
+                    <Button variant="outlined" startIcon={<Refresh />} onClick={() => setLastUpdated(new Date())}>
+                        Refresh
+                    </Button>
+                    <Button variant="contained" startIcon={<Add />} onClick={() => openCreateDialog(null, 'vendor')}>
+                        Add Vendor Admin
+                    </Button>
+                </Stack>
+            </Stack>
+
+            <Grid container spacing={2} mb={3}>
+                <Grid item xs={12} md={3}>
+                    <StatCard title="Today’s Processed Volume" value={formatCurrency(stats.total)} icon={<Business />} color="primary" />
+                </Grid>
+                <Grid item xs={12} md={3}>
+                    <StatCard title="Active" value={formatNumber(stats.active)} icon={<CheckCircle />} color="success" />
+                </Grid>
+                <Grid item xs={12} md={3}>
+                    <StatCard title="Total Balance" value={formatCurrency(stats.totalBalance)} icon={<AccountBalance />} color="info" />
+                </Grid>
+                <Grid item xs={12} md={3}>
+                    <StatCard title="Transactions" value={formatNumber(stats.totalTransactions)} icon={<Receipt />} color="warning" />
+                </Grid>
+            </Grid>
+
+            {!selectedOrg ? (
+                <Box key="vendor-table" sx={{ animation: 'tableSlideIn 340ms ease' }}>
+                    <Card sx={{ mb: 3, borderRadius: 1 }}>
+                        <CardContent>
+                            <Grid container spacing={2} alignItems="center">
+                                <Grid item xs={12} md={4}>
+                                    <TextField
+                                        fullWidth
+                                        size="small"
+                                        placeholder="Search name, location, email"
+                                        value={searchTerm}
+                                        onChange={(event) => {
+                                            setSearchTerm(event.target.value);
+                                            setPage(0);
+                                        }}
+                                        InputProps={{
+                                            startAdornment: (
+                                                <InputAdornment position="start">
+                                                    <Search fontSize="small" />
+                                                </InputAdornment>
+                                            ),
+                                        }}
+                                    />
+                                </Grid>
+                                <Grid item xs={12} md={2}>
+                                    <FormControl fullWidth size="small">
+                                        <InputLabel>Level</InputLabel>
+                                        <Select value={levelFilter} label="Level" onChange={(event) => { setLevelFilter(event.target.value as OrgLevel | 'all'); setPage(0); }}>
+                                            <MenuItem value="all">All Levels</MenuItem>
+                                            {LEVEL_OPTIONS.map((option) => (
+                                                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                                            ))}
+                                        </Select>
+                                    </FormControl>
+                                </Grid>
+                                <Grid item xs={12} md={2}>
+                                    <FormControl fullWidth size="small">
+                                        <InputLabel>Status</InputLabel>
+                                        <Select value={statusFilter} label="Status" onChange={(event) => { setStatusFilter(event.target.value as OrgStatus | 'all'); setPage(0); }}>
+                                            <MenuItem value="all">All Status</MenuItem>
+                                            {STATUS_OPTIONS.map((option) => (
+                                                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                                            ))}
+                                        </Select>
+                                    </FormControl>
+                                </Grid>
+                                <Grid item xs={12} md={2}>
+                                    <TextField
+                                        fullWidth
+                                        size="small"
+                                        type="date"
+                                        label="Start Date"
+                                        value={startDate}
+                                        onChange={(event) => { setStartDate(event.target.value); setPage(0); }}
+                                        InputLabelProps={{ shrink: true }}
+                                    />
+                                </Grid>
+                                <Grid item xs={12} md={2}>
+                                    <TextField
+                                        fullWidth
+                                        size="small"
+                                        type="date"
+                                        label="End Date"
+                                        value={endDate}
+                                        onChange={(event) => { setEndDate(event.target.value); setPage(0); }}
+                                        InputLabelProps={{ shrink: true }}
+                                    />
+                                </Grid>
+                                <Grid item xs={12}>
+                                    <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
+                                        <Chip label={${filteredOrgs.length} filtered} color="primary" variant="outlined" />
+                                        <Chip label={${stats.vendors} vendors} size="small" />
+                                        <Chip label={${stats.subVendors} sub-vendors} size="small" />
+                                        <Chip label={${stats.agents} agents} size="small" />
+                                        <Chip label={${stats.cashiers} cashiers} size="small" />
+                                        <Button size="small" onClick={resetFilters}>Reset Filters</Button>
+                                    </Stack>
+                                </Grid>
+                            </Grid>
+                        </CardContent>
+                    </Card>
+
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
+                        <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} mb={2}>
+                            <Stack direction="row" spacing={1.5} alignItems="center">
+                                <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main' }}><Domain /></Avatar>
+                                <Box>
+                                    <Typography variant="h6">Recent Vendors</Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Click any row to slide into the full vendor management details.
+                                    </Typography>
+                                </Box>
+                            </Stack>
+
+                            {/* <FormControl size="small" sx={{ minWidth: 260 }}>
+                                <InputLabel>Tenant</InputLabel>
+                                <Select
+                                    value={tenantId}
+                                    label="Tenant"
+                                    onChange={(event) => setTenantId(event.target.value)}
+                                    onOpen={() => setTenantSearchTerm('')}
+                                >
+                                    {filteredTenants.map((tenant) => (
+                                        <MenuItem key={tenant.id} value={tenant.id}>
+                                            {tenant.name}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl> */}
+                        </Stack>
+
+                        <Box sx={{ overflowX: 'auto' }}>
+                            <Table size="small">
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell>Organisation</TableCell>
+                                        <TableCell>Level</TableCell>
+                                        <TableCell>Status</TableCell>
+                                        <TableCell>Location</TableCell>
+                                        <TableCell>Created</TableCell>
+                                        <TableCell align="right">Balance</TableCell>
+                                        <TableCell align="right">Transactions</TableCell>
+                                        <TableCell align="right">Children</TableCell>
+                                        <TableCell align="right">Action</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {paginatedOrgs.map((org) => (
+                                        <TableRow key={org.id} hover sx={{ cursor: 'pointer' }} onClick={() => handleSelectOrg(org.id)}>
+                                            <TableCell>
+                                                <Stack spacing={0.25}>
+                                                    <Typography variant="subtitle2">{org.name}</Typography>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        {org.path.length ? org.path.join(' / ') : 'Top level'}
+                                                    </Typography>
+                                                </Stack>
+                                            </TableCell>
+                                            <TableCell><Chip label={levelLabel(org.level)} size="small" color={levelColor(org.level)} variant="outlined" /></TableCell>
+                                            <TableCell><Chip label={org.status} size="small" color={statusColor(org.status)} /></TableCell>
+                                            <TableCell>{org.location}</TableCell>
+                                            <TableCell>{formatDate(org.created_at)}</TableCell>
+                                            <TableCell align="right">{formatCurrency(org.wallet_balance)}</TableCell>
+                                            <TableCell align="right">{formatNumber(org.transactions)}</TableCell>
+                                            <TableCell align="right">{formatNumber(org.childCount)}</TableCell>
+                                            <TableCell align="right">
+                                                <Button
+                                                    size="small"
+                                                    endIcon={<ArrowForward />}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        handleSelectOrg(org.id);
+                                                    }}
+                                                >
+                                                    View
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </Box>
+
+                        <TablePagination
+                            component="div"
+                            count={filteredOrgs.length}
+                            page={page}
+                            onPageChange={(_, nextPage) => setPage(nextPage)}
+                            rowsPerPage={rowsPerPage}
+                            onRowsPerPageChange={(event) => {
+                                setRowsPerPage(Number(event.target.value));
+                                setPage(0);
+                            }}
+                            rowsPerPageOptions={[5, 8, 12, 20]}
+                        />
+                    </Paper>
+                </Box>
+            ) : (
+                <Box id="vendor-detail-panel" key={selectedOrg.id} sx={{ animation: 'detailSlideIn 380ms ease' }}>
+                    <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} spacing={2} mb={2}>
+                        <Box>
+                            <Typography variant="h6">Selected Vendor Details</Typography>
+                            <Typography variant="body2" color="text.secondary">{selectedOrg.name}</Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1}>
+                            <Button variant="outlined" startIcon={<ArrowBack />} onClick={() => setSelectedOrgId(null)}>
+                                Back to Recent Vendors
+                            </Button>
+                            <Button variant="outlined" startIcon={<Add />} onClick={() => openCreateDialog(selectedOrg.id, nextChildLevel(selectedOrg.level))}>
+                                Add Child
+                            </Button>
+                        </Stack>
+                    </Stack>
+
+                    <Grid container spacing={2} mb={3}>
+                        <Grid item xs={12} md={3}>
+                            <StatCard title="Wallet Balance" value={formatCurrency(selectedOrg.wallet_balance)} icon={<AccountBalance />} color="success" />
+                        </Grid>
+                        <Grid item xs={12} md={3}>
+                            <StatCard title="Transactions" value={formatNumber(selectedOrg.transactions)} icon={<Receipt />} color="warning" />
+                        </Grid>
+                        <Grid item xs={12} md={3}>
+                            <StatCard title="Users" value={formatNumber(selectedOrg.users)} icon={<People />} color="info" />
+                        </Grid>
+                        <Grid item xs={12} md={3}>
+                            <StatCard title="Child Organisations" value={formatNumber(countChildren(selectedOrg.children || []))} icon={<Business />} color="primary" />
+                        </Grid>
+                    </Grid>
+
+                    <Grid container spacing={3}>
+                        <Grid item xs={12} md={7}>
+                            <Stack spacing={3}>
+                                <Card sx={{ borderRadius: 1 }}>
+                                    <CardContent>
+                                        <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} mb={2}>
+                                            <Stack spacing={0.5}>
+                                                <Typography variant="h5">{selectedOrg.name}</Typography>
+                                                <Typography color="text.secondary">{selectedOrg.manager_email}</Typography>
+                                                <Stack direction="row" spacing={1} flexWrap="wrap">
+                                                    <Chip label={levelLabel(selectedOrg.level)} color={levelColor(selectedOrg.level)} />
+                                                    <Chip label={selectedOrg.status} color={statusColor(selectedOrg.status)} />
+                                                    <Chip label={selectedOrg.location} variant="outlined" />
+                                                </Stack>
+                                            </Stack>
+                                            <Stack direction="row" spacing={1}>
+                                                <Button variant="outlined" startIcon={<Edit />} onClick={openEditDialog}>Edit</Button>
+                                                <Button variant="outlined" color="error" startIcon={<Delete />} onClick={() => setDeleteDialogOpen(true)}>Delete</Button>
+                                            </Stack>
+                                        </Stack>
+                                        <Grid container spacing={2}>
+                                            <Grid item xs={12} md={6}>
+                                                <Typography variant="body2" color="text.secondary">Slug</Typography>
+                                                <Typography fontFamily="monospace">{selectedOrg.slug}</Typography>
+                                            </Grid>
+                                            <Grid item xs={12} md={6}>
+                                                <Typography variant="body2" color="text.secondary">Created</Typography>
+                                                <Typography>{formatDate(selectedOrg.created_at)}</Typography>
+                                            </Grid>
+                                            <Grid item xs={12}>
+                                                <Button size="small" onClick={() => navigate(/tenants/vendors/${selectedOrg.id})}>
+                                                    View Full Details
+                                                </Button>
+                                            </Grid>
+                                        </Grid>
+                                    </CardContent>
+                                </Card>
+
+                                <Card sx={{ borderRadius: 1 }}>
+                                    <CardContent>
+                                        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                                            <Typography variant="h6">Recent Transactions</Typography>
+                                            <Button size="small" onClick={() => navigate('/transactions')}>View All</Button>
+                                        </Stack>
+                                        <Divider sx={{ mb: 2 }} />
+                                        <Box sx={{ overflowX: 'auto' }}>
+                                            <Table size="small">
+                                                <TableHead>
+                                                    <TableRow>
+                                                        <TableCell>Reference</TableCell>
+                                                        <TableCell>Type</TableCell>
+                                                        <TableCell align="right">Amount</TableCell>
+                                                        <TableCell>Status</TableCell>
+                                                        <TableCell>Date</TableCell>
+                                                    </TableRow>
+                                                </TableHead>
+                                                <TableBody>
+                                                    {selectedTransactions.map((transaction) => (
+                                                        <TableRow key={transaction.id} hover>
+                                                            <TableCell>{transaction.reference}</TableCell>
+                                                            <TableCell>{transaction.type}</TableCell>
+                                                            <TableCell align="right">{formatCurrency(transaction.value)}</TableCell>
+                                                            <TableCell><Chip label={transaction.status} size="small" color={transaction.status === 'success' ? 'success' : transaction.status === 'pending' ? 'warning' : 'error'} /></TableCell>
+                                                            <TableCell>{formatDate(transaction.created_at)}</TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
+                                        </Box>
+                                    </CardContent>
+                                </Card>
+                            </Stack>
+                        </Grid>
+
+                        <Grid item xs={12} md={5}>
+                            <Stack spacing={3}>
+                                <Card sx={{ borderRadius: 1 }}>
+                                    <CardContent>
+                                        <Typography variant="h6" mb={2}>Hierarchy Under This Vendor</Typography>
+                                        <Paper variant="outlined" sx={{ maxHeight: 340, overflow: 'auto', borderRadius: 1 }}>
+                                            {renderTree([selectedOrg])}
+                                        </Paper>
+                                    </CardContent>
+                                </Card>
+
+                                {/* <Card sx={{ borderRadius: 1 }}>
+                                    <CardContent>
+                                        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                                            <Typography variant="h6">Role Bindings ({selectedBindings.length})</Typography>
+                                            <Button size="small" variant="contained" startIcon={<PersonAdd />} onClick={() => setBindingDialogOpen(true)}>
+                                                Assign
+                                            </Button>
+                                        </Stack>
+                                        <Stack spacing={1.5}>
+                                            {selectedBindings.map((binding) => (
+                                                <Paper key={binding.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                                                    <Stack direction="row" justifyContent="space-between" spacing={2}>
+                                                        <Box>
+                                                            <Typography variant="subtitle2">{binding.user_email}</Typography>
+                                                            <Stack direction="row" spacing={1} mt={0.5}>
+                                                                <Chip label={levelLabel(binding.role)} size="small" color={levelColor(binding.role)} />
+                                                                <Chip label={binding.status} size="small" color={statusColor(binding.status)} />
+                                                            </Stack>
+                                                        </Box>
+                                                        <Stack direction="row" spacing={1}>
+                                                            <Button size="small" onClick={() => toggleBindingStatus(binding.id)}>
+                                                                {binding.status === 'active' ? 'Suspend' : 'Activate'}
+                                                            </Button>
+                                                            <IconButton size="small" color="error" onClick={() => removeBinding(binding.id)}>
+                                                                <Delete fontSize="small" />
+                                                            </IconButton>
+                                                        </Stack>
+                                                    </Stack>
+                                                </Paper>
+                                            ))}
+                                        </Stack>
+                                    </CardContent>
+                                </Card> */}
+
+                                <Card sx={{ borderRadius: 1 }}>
+                                    <CardContent>
+                                        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                                            <Typography variant="h6">Wallet Summary</Typography>
+                                            <Button size="small" variant="outlined" onClick={() => navigate('/tenants/wallets')}>Manage</Button>
+                                        </Stack>
+                                        <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'primary.light', color: 'primary.contrastText', borderRadius: 1 }}>
+                                            <Typography variant="caption">Total Balance</Typography>
+                                            <Typography variant="h5" fontWeight={700}>{formatCurrency(totalSelectedWalletBalance)}</Typography>
+                                        </Paper>
+                                        <Stack spacing={1.5}>
+                                            {selectedWallets.map((wallet) => (
+                                                <Stack key={wallet.id} direction="row" justifyContent="space-between" spacing={2}>
+                                                    <Box>
+                                                        <Typography variant="subtitle2">{wallet.key}</Typography>
+                                                        <Stack direction="row" spacing={1} mt={0.5}>
+                                                            <Chip label={wallet.type} size="small" />
+                                                            {wallet.role && <Chip label={wallet.role} size="small" variant="outlined" />}
+                                                        </Stack>
+                                                    </Box>
+                                                    <Typography variant="subtitle2">{formatCurrency(wallet.balance)}</Typography>
+                                                </Stack>
+                                            ))}
+                                        </Stack>
+                                    </CardContent>
+                                </Card>
+                            </Stack>
+                        </Grid>
+                    </Grid>
+                </Box>
+            )}
+
+            <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>Create Organisation</DialogTitle>
+                <DialogContent>
+                    <Stack spacing={2} mt={1}>
+                        <TextField label="Organisation Name" value={formState.name} onChange={(event) => setFormState((prev) => ({ ...prev, name: event.target.value }))} fullWidth autoFocus />
+                        <TextField label="Location" value={formState.location} onChange={(event) => setFormState((prev) => ({ ...prev, location: event.target.value }))} fullWidth />
+                        <TextField label="Manager Email" value={formState.manager_email} onChange={(event) => setFormState((prev) => ({ ...prev, manager_email: event.target.value }))} fullWidth />
+                        <FormControl fullWidth>
+                            <InputLabel>Level</InputLabel>
+                            <Select value={formState.level} label="Level" onChange={(event) => setFormState((prev) => ({ ...prev, level: event.target.value as OrgLevel }))}>
+                                {LEVEL_OPTIONS.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
+                            </Select>
+                        </FormControl>
+                    </Stack>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+                    <Button variant="contained" startIcon={<Add />} onClick={handleCreateSubmit}>Create</Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>Edit Organisation</DialogTitle>
+                <DialogContent>
+                    <Stack spacing={2} mt={1}>
+                        <TextField label="Organisation Name" value={formState.name} onChange={(event) => setFormState((prev) => ({ ...prev, name: event.target.value }))} fullWidth autoFocus />
+                        <TextField label="Location" value={formState.location} onChange={(event) => setFormState((prev) => ({ ...prev, location: event.target.value }))} fullWidth />
+                        <TextField label="Manager Email" value={formState.manager_email} onChange={(event) => setFormState((prev) => ({ ...prev, manager_email: event.target.value }))} fullWidth />
+                        <FormControl fullWidth>
+                            <InputLabel>Status</InputLabel>
+                            <Select value={formState.status} label="Status" onChange={(event) => setFormState((prev) => ({ ...prev, status: event.target.value as OrgStatus }))}>
+                                {STATUS_OPTIONS.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
+                            </Select>
+                        </FormControl>
+                    </Stack>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+                    <Button variant="contained" startIcon={<SaveIcon />} onClick={handleEditSubmit}>Save</Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} maxWidth="xs" fullWidth>
+                <DialogTitle>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                        <WarningIcon color="error" />
+                        <Typography color="error">Delete Organisation</Typography>
+                    </Stack>
+                </DialogTitle>
+                <DialogContent>
+                    <Typography>Delete <strong>{selectedOrg?.name}</strong> and its child organisations?</Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+                    <Button variant="contained" color="error" startIcon={<Delete />} onClick={handleDeleteSubmit}>Delete</Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog open={bindingDialogOpen} onClose={() => setBindingDialogOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>Assign User to Organisation</DialogTitle>
+                <DialogContent>
+                    <Stack spacing={2} mt={1}>
+                        <TextField label="User Email" value={bindingForm.user_email} onChange={(event) => setBindingForm((prev) => ({ ...prev, user_email: event.target.value }))} fullWidth />
+                        <FormControl fullWidth>
+                            <InputLabel>User Role</InputLabel>
+                            <Select value={bindingForm.role} label="User Role" onChange={(event) => setBindingForm((prev) => ({ ...prev, role: event.target.value as OrgLevel }))}>
+                                {LEVEL_OPTIONS.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
+                            </Select>
+                        </FormControl>
+                    </Stack>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setBindingDialogOpen(false)}>Cancel</Button>
+                    <Button variant="contained" startIcon={<PersonAdd />} onClick={handleBindingSubmit} disabled={!bindingForm.user_email.trim()}>Assign</Button>
+                </DialogActions>
+            </Dialog>
+
+            <Snackbar open={Boolean(success)} autoHideDuration={3000} onClose={() => setSuccess(null)} anchorOrigin={{ vertical: 'top', horizontal: 'right' }}>
+                <Paper sx={{ p: 1.5, bgcolor: 'success.main', color: 'success.contrastText' }}>
+                    {success}
+                </Paper>
+            </Snackbar>
+        </Box>
+    );
+};
+
+export default VendorManagement;

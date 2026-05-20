@@ -1,0 +1,26 @@
+name: Deploy quickcash-tenant-portal
+
+on:
+  push:
+    branches:
+      - test
+      - bedc
+      - aple
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: 188.166.161.13
+          username: root
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /var/www/quickcash-full/frontend/tenant-portal
+            git pull origin ${{ github.ref_name }}
+            npm install
+            npm run build
+            systemctl restart nginx

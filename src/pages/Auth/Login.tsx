@@ -69,7 +69,7 @@ const Login: React.FC = () => {
 
         try {
             // Call backend API directly
-            const response = await fetch('http://188.166.161.13:8001/api/v1/auth/login/', {
+            const response = await fetch('http://188.166.161.13:8061/user/login/', {
             // const response = await fetch('http://188.166.99.136:8061/user/login/', {
                 method: 'POST',
                 headers: {
@@ -89,7 +89,6 @@ const Login: React.FC = () => {
             }
 
             const data = await response.json();
-
             if (!response.ok) {
                 setError(data.message || data.detail || 'Login failed. Please try again.');
                 setIsLoading(false);
@@ -104,13 +103,15 @@ const Login: React.FC = () => {
             }
 
             const authPayload: { token: string; refreshToken?: string | null; user?: User | null } = { token };
+
+            
             if (refreshToken !== undefined) {
                 authPayload.refreshToken = refreshToken;
             }
             if (user !== undefined) {
                 authPayload.user = user;
             }
-
+            console.log(authPayload, "authPayload")
             dispatch(setAuth(authPayload));
 
             console.log('Login successful, redirecting to /tenants/dashboard');
