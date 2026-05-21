@@ -285,7 +285,15 @@ const StatCard = ({
 );
 
 const VendorManagement: React.FC = () => {
-    const today = new Date().toISOString().split('T')[0];
+    // const today = new Date().toISOString().split('T')[0];
+    const today = new Date();
+    const past = new Date();
+            past.setDate(today.getDate() - 14);
+    
+    const format = (d: Date) => d.toISOString().split("T")[0];
+        const tomorrow = new Date();
+            tomorrow.setDate(today.getDate() + 1);
+
     const [vendors, setVendors] = useState<RelatedVendor[]>([]);
     const [selectedVendor, setSelectedVendor] = useState<RelatedVendor | null>(null);
     const [selectedChildren, setSelectedChildren] = useState<RelatedVendor[]>([]);
@@ -307,14 +315,16 @@ const VendorManagement: React.FC = () => {
     const [transactionPage, setTransactionPage] = useState(0);
     const [transactionRowsPerPage, setTransactionRowsPerPage] = useState(5);
     const [transactionSearch, setTransactionSearch] = useState('');
-    const [transactionStartDate, setTransactionStartDate] = useState(today);
-    const [transactionEndDate, setTransactionEndDate] = useState(today);
+
+    
+    const [transactionStartDate, setTransactionStartDate] = useState(format(past));
+    const [transactionEndDate, setTransactionEndDate] = useState(format(tomorrow));
 
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
 
-    const [cardstartDate, setCardStartDate] = useState(today);
-    const [cardendDate, setCardEndDate] = useState(today);
+    const [cardstartDate, setCardStartDate] = useState(format(past));
+    const [cardendDate, setCardEndDate] = useState(format(tomorrow));
 
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(8);
@@ -333,8 +343,8 @@ const VendorManagement: React.FC = () => {
 
         try {
             const params = new URLSearchParams({
-                start_date: startDate,
-                end_date: endDate,
+                start_date: cardstartDate,
+                end_date: cardendDate,
             });
 
             const response = await fetch(
@@ -362,7 +372,7 @@ const VendorManagement: React.FC = () => {
         } finally {
             setAnalyticsLoading(false);
         }
-    }, [startDate, endDate]);
+    }, [cardstartDate, cardendDate]);
 
     const handleDeleteVendor = async (
         vendorId: number
@@ -786,14 +796,58 @@ useEffect(() => {
                         Live related vendors - updated {lastUpdated.toLocaleTimeString()}
                     </Typography>
                 </Box>
+                <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={2}
+                alignItems={{ xs: 'stretch', sm: 'center' }}
+            >
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                    <TextField
+                        label="Start Date"
+                        type="date"
+                        size="small"
+                        value={cardstartDate}
+                        onChange={(e) => setCardStartDate(e.target.value)}
+                        InputLabelProps={{
+                            shrink: true,
+                        }}
+                    />
+
+                    <TextField
+                        label="End Date"
+                        type="date"
+                        size="small"
+                        value={cardendDate}
+                        onChange={(e) => setCardEndDate(e.target.value)}
+                        InputLabelProps={{
+                            shrink: true,
+                        }}
+                    />
+                </Stack>
+
                 <Stack direction="row" spacing={1}>
-                    <Button variant="outlined" startIcon={<Refresh />} onClick={fetchRelatedVendors} disabled={loading}>
+                    <Button
+                        variant="outlined"
+                        startIcon={<Refresh />}
+                        onClick={() => {
+                            fetchRelatedVendors();
+                            fetchVendorAnalytics();
+                        }}
+                        disabled={loading || analyticsLoading}
+                    >
                         Refresh
                     </Button>
-                    <Button variant="contained" startIcon={<Download />} onClick={exportVendors} disabled={!filteredVendors.length}>
+
+                    <Button
+                        variant="contained"
+                        startIcon={<Download />}
+                        onClick={exportVendors}
+                        disabled={!filteredVendors.length}
+                    >
                         Export
                     </Button>
                 </Stack>
+            </Stack>
             </Stack>
 
             {error && (

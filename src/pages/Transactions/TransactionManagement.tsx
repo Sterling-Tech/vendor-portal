@@ -115,16 +115,17 @@ const TransactionManagement: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<TransactionStatus | 'all'>('all');
     const [directionFilter, setDirectionFilter] = useState<TransactionDirection | 'all'>('all');
+    
     const today = new Date();
-  const past = new Date();
-  past.setDate(today.getDate() - 14);
+    const past = new Date();
+        past.setDate(today.getDate() - 14);
 
-  const format = (d: Date) => d.toISOString().split("T")[0];
-  const [startDate, setStartDate] = useState(format(past));
-  const tomorrow = new Date();
-    tomorrow.setDate(today.getDate() + 1);
+    const format = (d: Date) => d.toISOString().split("T")[0];
+    const [startDate, setStartDate] = useState(format(past));
+    const tomorrow = new Date();
+        tomorrow.setDate(today.getDate() + 1);
 
-  const [endDate, setEndDate] = useState(format(tomorrow));
+    const [endDate, setEndDate] = useState(format(tomorrow));
     const [transactionPage, setTransactionPage] = useState(0);
     const [ledgerPage, setLedgerPage] = useState(0);
     const [transactionRowsPerPage, setTransactionRowsPerPage] = useState(8);
@@ -184,7 +185,7 @@ const TransactionManagement: React.FC = () => {
 
         const mappedTransactions: Transaction[] = transactionResults.map(
             (item: any, index: number) => ({
-                id: `${index}`,
+                id: item.transaction_ref,
                 reference: item.transaction_ref,
                 status: item.status || 'success',
                 org_name: item.vendor_name || item.org_name || 'Vendor',
@@ -199,7 +200,7 @@ const TransactionManagement: React.FC = () => {
 
         const mappedLedger: LedgerEntry[] = ledgerResults.map(
             (item: any, index: number) => ({
-                id: `${index}`,
+                id: item.transaction_ref,
                 ledger_ref: item.ledger_ref || `LEDGER-${index + 1}`,
                 transaction_ref: item.transaction_ref,
                 account: item.account || '-',
@@ -251,13 +252,16 @@ const TransactionManagement: React.FC = () => {
             const matchesStatus = statusFilter === 'all' || tx.status === statusFilter;
             const matchesDirection = directionFilter === 'all' || tx.direction === directionFilter;
 
-            const created = new Date(tx.created_at).getTime();
-            const matchesStart = !startDate || created >= new Date(`${startDate}T00:00:00`).getTime();
-            const matchesEnd = !endDate || created <= new Date(`${endDate}T23:59:59`).getTime();
+            const txDate = tx.created_at?.split('T')[0];
 
-            return matchesSearch && matchesStatus && matchesDirection && matchesStart && matchesEnd;
-        });
-    }, [directionFilter, endDate, searchTerm, startDate, statusFilter]);
+            const matchesStart =
+                !startDate || txDate >= startDate;
+
+            const matchesEnd =
+                !endDate || txDate <= endDate;
+                        return matchesSearch && matchesStatus && matchesDirection && matchesStart && matchesEnd;
+                    });
+    }, [transactions, directionFilter, endDate, searchTerm, startDate, statusFilter]);
 
     const filteredLedger = useMemo(() => {
         const transactionRefs = new Set(filteredTransactions.map((tx) => tx.reference));
@@ -276,7 +280,7 @@ const TransactionManagement: React.FC = () => {
 
             return matchesTransactionFilter && matchesSearch;
         });
-    }, [filteredTransactions, searchTerm]);
+    }, [ledgerEntries,filteredTransactions, searchTerm]);
 
     const paginatedTransactions = useMemo(
         () =>
@@ -568,13 +572,11 @@ const TransactionManagement: React.FC = () => {
                                     <TableRow>
                                         <TableCell>Reference</TableCell>
                                         <TableCell>Status</TableCell>
-                                        <TableCell>Status Code</TableCell>
-                                        <TableCell>Vendor Name</TableCell>
-                                        <TableCell>Wallet</TableCell>
+                                        {/* <TableCell>Vendor Name</TableCell> */}
                                         <TableCell>Type</TableCell>
                                         <TableCell>Category</TableCell>
                                         <TableCell align="right">Amount</TableCell>
-                                        <TableCell align="right">Date</TableCell>
+                                        <TableCell align="right">Date / Time</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -587,8 +589,7 @@ const TransactionManagement: React.FC = () => {
                                             <TableCell>
                                                 <Chip label={tx.status} size="small" color={statusColor(tx.status)} />
                                             </TableCell>
-                                            <TableCell>{tx.org_name}</TableCell>
-                                            <TableCell>{tx.wallet_key}</TableCell>
+                                            {/* <TableCell>{tx.org_name}</TableCell> */}
                                             <TableCell>
                                                 <Chip label={tx.direction} size="small" color={directionColor(tx.direction)} />
                                             </TableCell>
@@ -634,14 +635,11 @@ const TransactionManagement: React.FC = () => {
                                     <TableRow>
                                         <TableCell>Ledger Ref</TableCell>
                                         <TableCell>Transaction Ref</TableCell>
-                                        <TableCell>Account</TableCell>
                                         <TableCell>Organisation</TableCell>
-                                        <TableCell>Wallet</TableCell>
                                         <TableCell>Type</TableCell>
                                         <TableCell align="right">Amount</TableCell>
-                                        <TableCell align="right">Balance After</TableCell>
                                         <TableCell>Status</TableCell>
-                                        <TableCell>Date</TableCell>
+                                        <TableCell>Date / Time</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -652,14 +650,11 @@ const TransactionManagement: React.FC = () => {
                                                 <Typography variant="caption" color="text.secondary">{entry.narration}</Typography>
                                             </TableCell>
                                             <TableCell>{entry.transaction_ref}</TableCell>
-                                            <TableCell>{entry.account}</TableCell>
                                             <TableCell>{entry.org_name}</TableCell>
-                                            <TableCell>{entry.wallet_key}</TableCell>
                                             <TableCell>
                                                 <Chip label={entry.direction} size="small" color={directionColor(entry.direction)} />
                                             </TableCell>
                                             <TableCell align="right">{formatCurrency(entry.amount)}</TableCell>
-                                            <TableCell align="right">{formatCurrency(entry.balance_after)}</TableCell>
                                             <TableCell>
                                                 <Chip label={entry.status} size="small" color={statusColor(entry.status)} />
                                             </TableCell>

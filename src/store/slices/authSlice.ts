@@ -15,7 +15,7 @@ export interface User {
     firstName?: string;
     lastName?: string;
     is_2fa_enabled:boolean;
-    related_vend?:Related_vendor;
+    related_vendor?:Related_vendor;
     first_name?: string;
     last_name?: string;
     phone?: string;

@@ -109,12 +109,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     };
 
     // Top menus (AppBar)
-    // const topMenuItems = [
-    //     { text: 'Dashboard', icon: <Dashboard />, path: '/tenants/dashboard' },
-    //     { text: 'Analytics', icon: <Analytics />, path: '/analytics' },
-    //     { text: 'Transactions', icon: <Receipt />, path: '/transactions' },
-    //     { text: 'Prepaid Services', icon: <PhoneAndroid />, path: '/prepaid' },
-    // ];
+    const topMenuItems = [
+        { text: 'Dashboard', icon: <Dashboard />, path: '/tenants/dashboard' },
+        // { text: 'Analytics', icon: <Analytics />, path: '/analytics' },
+        // { text: 'Transactions', icon: <Receipt />, path: '/transactions' },
+        // { text: 'Prepaid Services', icon: <PhoneAndroid />, path: '/prepaid' },
+    ];
 
     // Left side menus (drawer)
     const leftMenuItems = [
@@ -283,9 +283,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                             size="small"
                             color="secondary"
                         />
-                        {currentTenant && (
+                        {user?.related_vendor && (
                             <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                                ({currentTenant.name})
+                                {user?.related_vendor?.business_name}
                             </Typography>
                         )}
                     </Stack>
@@ -303,7 +303,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     </IconButton>
                     <IconButton onClick={handleMenuOpen}>
                         <Avatar sx={{ width: 32, height: 32 }}>
-                            {user?.firstName?.charAt(0) || 'U'}
+                            {user?.related_vendor?.business_name?.charAt(0) || 'U'}
                         </Avatar>
                     </IconButton>
                     <Menu

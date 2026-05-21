@@ -109,7 +109,7 @@ type DashboardGroup = {
     color: MuiColor;
     icon: React.ReactNode;
 };
-
+const WALLET_ENDPOINT = 'http://188.166.161.13:8061/vendor/wallet/';
 const RELATED_CHILDREN_ENDPOINT = 'http://188.166.161.13:8061/vendor/retrieve/related-children/';
 const CHILDREN_TRANSACTIONS_ENDPOINT = 'http://188.166.161.13:8061/vendor/retrieve-children/transactions/';
 const LEDGER_ENDPOINT = 'http://188.166.161.13:8061/vendor/ledger/';
@@ -681,7 +681,15 @@ const Dashboard: React.FC = () => {
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(8);
     const [showFullDetails, setShowFullDetails] = useState(false);
+    const [walletData, setWalletData] = useState<{
+        wallet_type?: {
+            name: string;
+            description: string;
+        };
+        balance: string;
+    } | null>(null);
 
+    const [walletLoading, setWalletLoading] = useState(false);
     const [loading, setLoading] = useState(false);
     const [groupLoading, setGroupLoading] = useState(false);
     const [detailLoading, setDetailLoading] = useState(false);
@@ -705,6 +713,36 @@ const Dashboard: React.FC = () => {
     const currentVendorName = getCurrentVendorName();
     const currentGroup = DASHBOARD_GROUPS.find((group) => group.id === activeGroup) || DASHBOARD_GROUPS[0];
 
+    const fetchWallet = useCallback(async () => {
+        setWalletLoading(true);
+
+        try {
+            const response = await fetch(WALLET_ENDPOINT, {
+                method: 'GET',
+                headers: getHeaders(),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch wallet');
+            }
+
+            const data = await response.json();
+
+            setWalletData(data);
+        } catch (error) {
+            console.error('Wallet fetch error:', error);
+
+            setWalletData({
+                balance: '0.00',
+                wallet_type: {
+                    name: 'Wallet',
+                    description: '',
+                },
+            });
+        } finally {
+            setWalletLoading(false);
+        }
+    }, []);
     const fetchRelatedVendors = useCallback(async () => {
         setLoading(true);
         setError(null);
@@ -842,18 +880,18 @@ const Dashboard: React.FC = () => {
     }, [currentVendorId, fetchLedger]);
 
     useEffect(() => {
-        fetchRelatedVendors();
-    }, [fetchRelatedVendors]);
+        
+    }, []);
 
     useEffect(() => {
+        fetchRelatedVendors();
         fetchGroupVendors(currentGroup.hierarchy);
         setSelectedVendor(null);
-        setPage(0);
-    }, [currentGroup.hierarchy, fetchGroupVendors]);
-
-    useEffect(() => {
         fetchGlobalLedger();
-    }, [fetchGlobalLedger]);
+        fetchWallet();
+        setPage(0);
+    }, [currentGroup.hierarchy, fetchGroupVendors, fetchRelatedVendors, fetchGlobalLedger, fetchWallet]);
+
 
     useEffect(() => {
         if (!selectedVendor) return;
@@ -890,7 +928,8 @@ const Dashboard: React.FC = () => {
     const selectedChildrenTree = useMemo(() => buildVendorTree(selectedChildren), [selectedChildren]);
 
     const totalChildren = allVendors.length;
-    const globalNetBalance = globalLedgerSummary.total_credits - globalLedgerSummary.total_debits;
+    // const globalNetBalance = globalLedgerSummary.total_credits - globalLedgerSummary.total_debits;
+    const globalWalletBalance = toNumber(walletData?.balance);
     const selectedNetBalance = selectedLedgerSummary.total_credits - selectedLedgerSummary.total_debits;
     const selectedWalletBalance = selectedNetBalance || getWalletBalance(selectedVendor);
     const selectedChildrenCount = selectedChildren.length;
@@ -979,7 +1018,19 @@ const Dashboard: React.FC = () => {
                     <MetricTile title="Total Hierarchy" value={formatNumber(totalChildren)} detail="All related children" icon={<Business />} color="primary" />
                 </Grid>
                 <Grid item xs={12} sm={6} md={3}>
-                    <MetricTile title="Total Wallet Balance" value={formatCurrency(globalNetBalance)} detail={`Credits ${formatCurrency(globalLedgerSummary.total_credits)}`} icon={<AccountBalance />} color="success" />
+                    <MetricTile
+                    title="Total Wallet Balance"
+                    value={
+                        walletLoading ? (
+                            <CircularProgress size={20} />
+                        ) : (
+                            formatCurrency(globalWalletBalance)
+                        )
+                    }
+                    detail={walletData?.wallet_type?.name || 'Wallet'}
+                    icon={<AccountBalance />}
+                    color="success"
+                />
                 </Grid>
                 <Grid item xs={12} sm={6} md={3}>
                     <MetricTile title="Recent Ledger" value={formatNumber(globalLedgerEntries.length)} detail={`Debits ${formatCurrency(globalLedgerSummary.total_debits)}`} icon={<Receipt />} color="warning" />
@@ -1184,7 +1235,7 @@ const Dashboard: React.FC = () => {
                                                 </Box>
                                             </Paper>
 
-                                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
+                                            {/* <Paper variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
                                                 <Typography variant="subtitle1" fontWeight={700} gutterBottom>
                                                     Ledger Date Range
                                                 </Typography>
@@ -1206,7 +1257,7 @@ const Dashboard: React.FC = () => {
                                                         InputLabelProps={{ shrink: true }}
                                                     />
                                                 </Stack>
-                                            </Paper>
+                                            </Paper> */}
                                         </Stack>
                                     </Grid>
                                 </Grid>
