@@ -119,11 +119,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     // Left side menus (drawer)
     const leftMenuItems = [
         { text: 'Dashboard', icon: <Dashboard />, path: '/tenants/dashboard' },
-        { text: 'Vendors', icon: <Business />, path: '/tenants/vendors' },
-         { text: 'Transactions', icon: <Receipt />, path: '/transactions' },
+        ...(user?.related_vendor?.hierachy !== 'pos'
+        ? [
+              {
+                  text: 'Vendors',
+                  icon: <Business />,
+                  path: '/tenants/vendors',
+              },
+          ]
+        : []),
+        { text: 'Transactions', icon: <Receipt />, path: '/transactions' },
         // { text: 'Wallets', icon: <AccountBalance />, path: '/tenants/wallets' },
         // { text: 'Agents', icon: <PeopleAlt />, path: '/agents' },
-        { text: 'POS', icon: <PointOfSale />, path: '/pos' },
+        // { text: 'POS', icon: <PointOfSale />, path: '/pos' },
         { text: 'Settings', icon: <Settings />, path: '/settings' },
     ];
 
@@ -277,27 +285,29 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                         })}
                     </Stack>
                     <Stack direction="row" alignItems="center" spacing={1} sx={{ display: { xs: 'none', md: 'flex' } }}>
-                        <Chip
-                            icon={<Palette fontSize="small" />}
-                            label="Brand Mode"
-                            size="small"
-                            color="secondary"
-                        />
+                        
                         {user?.related_vendor && (
-                            <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                                {user?.related_vendor?.business_name}
-                            </Typography>
+                            // <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                            //     {user?.related_vendor?.business_name}
+                            // </Typography>
+
+                            <Chip
+                                icon={<Palette fontSize="small" />}
+                                label={user?.related_vendor?.business_name}
+                                size="small"
+                                color="secondary"
+                        />
                         )}
                     </Stack>
-                    <TenantSwitcher
+                    {/* <TenantSwitcher
                         onTenantChange={handleTenantChange}
                         currentTenantId={currentTenant?.id}
-                    />
-                    <Tooltip title="Comprehensive Dashboard">
+                    /> */}
+                    {/* <Tooltip title="Comprehensive Dashboard">
                         <IconButton color="inherit" sx={{ mr: 1 }} onClick={() => setDashboardModalOpen(true)}>
                             <Assessment />
                         </IconButton>
-                    </Tooltip>
+                    </Tooltip> */}
                     <IconButton color="inherit" sx={{ mr: 1 }}>
                         <Notifications />
                     </IconButton>

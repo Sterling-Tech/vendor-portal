@@ -31,6 +31,10 @@ import {
     TableRow,
     TextField,
     Typography,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
 } from '@mui/material';
 import {
     AccountBalance,
@@ -48,6 +52,7 @@ import {
     Search,
     Delete
 } from '@mui/icons-material';
+import { useAppDispatch, useAppSelector } from '../../../store/hooks';
 
 type VendorLevel = 'vendor' | 'sub_vendor' | 'agent' | 'cashier' | 'pos';
 type VendorLevelFilter = VendorLevel | 'all';
@@ -285,6 +290,7 @@ const StatCard = ({
 );
 
 const VendorManagement: React.FC = () => {
+    const { user } = useAppSelector((state) => state.auth);
     // const today = new Date().toISOString().split('T')[0];
     const today = new Date();
     const past = new Date();
@@ -301,7 +307,8 @@ const VendorManagement: React.FC = () => {
     const [selectedTransactionCount, setSelectedTransactionCount] = useState(0);
     const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
     const [showFullDetails, setShowFullDetails] = useState(false);
-
+    const [createVendorOpen, setCreateVendorOpen] = useState(false);
+    const [creatingVendor, setCreatingVendor] = useState(false);
     const [loading, setLoading] = useState(false);
     const [detailLoading, setDetailLoading] = useState(false);
     const [transactionLoading, setTransactionLoading] = useState(false);
@@ -325,7 +332,7 @@ const VendorManagement: React.FC = () => {
 
     const [cardstartDate, setCardStartDate] = useState(format(past));
     const [cardendDate, setCardEndDate] = useState(format(tomorrow));
-
+    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(8);
     const [analytics, setAnalytics] =
@@ -337,7 +344,148 @@ const VendorManagement: React.FC = () => {
         });
     const [analyticsLoading, setAnalyticsLoading] =
         useState(false);
+    const currentHierarchy = user?.related_vendor?.hierachy || "vendor";
+    const [vendorForm, setVendorForm] = useState({
+        business_name: "",
+        email: "",
+        phone_number: "",
+        address: "",
+        city: "",
+        state: "",
+        country: "Nigeria",
+        postal_code: "",
+        hierachy: "",
+    });
+    const getAllowedHierarchies = () => {
+        switch (currentHierarchy) {
+            case "vendor":
+                return [
+                    "sub_vendor",
+                    "agent",
+                    "cashier",
+                    "pos",
+                ];
 
+            case "sub_vendor":
+                return [
+                    "agent",
+                    "cashier",
+                    "pos",
+                ];
+
+            case "agent":
+                return [
+                    "cashier",
+                    "pos",
+                ];
+
+            case "cashier":
+                return ["pos"];
+
+            default:
+                return [];
+        }
+    };
+    const validateVendorForm = () => {
+        const errors: Record<string, string> = {};
+
+        if (!vendorForm.business_name.trim()) {
+            errors.business_name = "Business Name is required";
+        }
+
+        if (!vendorForm.email.trim()) {
+            errors.email = "Email is required";
+        }
+
+        if (!vendorForm.phone_number.trim()) {
+            errors.phone_number = "Phone Number is required";
+        }
+
+        if (!vendorForm.address.trim()) {
+            errors.address = "Address is required";
+        }
+
+        if (!vendorForm.city.trim()) {
+            errors.city = "City is required";
+        }
+
+        if (!vendorForm.state.trim()) {
+            errors.state = "State is required";
+        }
+
+        if (!vendorForm.postal_code.trim()) {
+            errors.postal_code = "Postal Code is required";
+        }
+
+        if (!vendorForm.hierachy) {
+            errors.hierachy = "Select hierarchy";
+        }
+
+        setFieldErrors(errors);
+
+        return Object.keys(errors).length === 0;
+    };
+    const handleCreateVendor = async () => {
+        const error = validateVendorForm();
+        console.log({ error, fieldErrors });
+        if (error) {
+            setError("Please fix the form errors before submitting");
+            return;
+        }
+
+        setCreatingVendor(true);
+
+        try {
+            const response = await fetch(
+                "http://188.166.161.13:8061/vendor/create/",
+                {
+                    method: "POST",
+                    headers: buildHeaders(),
+                    body: JSON.stringify({
+                        ...vendorForm,
+                        related_vendor:
+                            user?.related_vendor?.id,
+                    }),
+                }
+            );
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(
+                    data?.message ||
+                        "Failed to create vendor"
+                );
+            }
+
+            setSuccess("Vendor created successfully");
+
+            setCreateVendorOpen(false);
+
+            setVendorForm({
+                business_name: "",
+                email: "",
+                phone_number: "",
+                address: "",
+                city: "",
+                state: "",
+                country: "Nigeria",
+                postal_code: "",
+                hierachy: "",
+            });
+
+            await fetchRelatedVendors();
+
+        } catch (err: any) {
+            console.error(err);
+            setError(
+                err.message ||
+                    "Failed to create vendor"
+            );
+        } finally {
+            setCreatingVendor(false);
+        }
+    };
     const fetchVendorAnalytics = useCallback(async () => {
         setAnalyticsLoading(true);
 
@@ -1001,6 +1149,14 @@ useEffect(() => {
                                 </Box>
                             </Stack>
                             {loading && <CircularProgress size={24} />}
+                            <Button
+                                variant="contained"
+                                color="primary"
+                                startIcon={<Business />}
+                                onClick={() => setCreateVendorOpen(true)}
+                            >
+                                Create Vendor
+                            </Button>
                         </Stack>
 
                         <Box sx={{ overflowX: 'auto' }}>
@@ -1407,6 +1563,187 @@ useEffect(() => {
                     {success}
                 </Paper>
             </Snackbar>
+
+            <Dialog
+    open={createVendorOpen}
+    onClose={() => setCreateVendorOpen(false)}
+    maxWidth="md"
+    fullWidth
+>
+    <DialogTitle>
+        Create Vendor
+    </DialogTitle>
+    {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+           {error}
+        </Alert>
+    )}
+    <DialogContent>
+        <Grid container spacing={2} mt={1}>
+            <Grid item xs={12}>
+                <TextField
+                    fullWidth
+                    label="Business Name"
+                    value={vendorForm.business_name}
+                    onChange={(e) =>
+                        setVendorForm({
+                            ...vendorForm,
+                            business_name:
+                                e.target.value,
+                        })
+                    }
+                />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+                <TextField
+                    fullWidth
+                    label="Email"
+                    value={vendorForm.email}
+                    onChange={(e) =>
+                        setVendorForm({
+                            ...vendorForm,
+                            email: e.target.value,
+                        })
+                    }
+                />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+                <TextField
+                    fullWidth
+                    label="Phone Number"
+                    value={vendorForm.phone_number}
+                    onChange={(e) =>
+                        setVendorForm({
+                            ...vendorForm,
+                            phone_number:
+                                e.target.value,
+                        })
+                    }
+                />
+            </Grid>
+
+            <Grid item xs={12}>
+                <TextField
+                    fullWidth
+                    label="Address"
+                    value={vendorForm.address}
+                    onChange={(e) =>
+                        setVendorForm({
+                            ...vendorForm,
+                            address: e.target.value,
+                        })
+                    }
+                />
+            </Grid>
+
+            <Grid item xs={12} md={4}>
+                <TextField
+                    fullWidth
+                    label="City"
+                    value={vendorForm.city}
+                    onChange={(e) =>
+                        setVendorForm({
+                            ...vendorForm,
+                            city: e.target.value,
+                        })
+                    }
+                />
+            </Grid>
+
+            <Grid item xs={12} md={4}>
+                <TextField
+                    fullWidth
+                    label="State"
+                    value={vendorForm.state}
+                    onChange={(e) =>
+                        setVendorForm({
+                            ...vendorForm,
+                            state: e.target.value,
+                        })
+                    }
+                />
+            </Grid>
+
+            <Grid item xs={12} md={4}>
+                <TextField
+                    fullWidth
+                    label="Postal Code"
+                    value={vendorForm.postal_code}
+                    onChange={(e) =>
+                        setVendorForm({
+                            ...vendorForm,
+                            postal_code:
+                                e.target.value,
+                        })
+                    }
+                />
+            </Grid>
+
+            <Grid item xs={12}>
+                <FormControl fullWidth>
+                    <InputLabel>
+                        Hierarchy
+                    </InputLabel>
+
+                    <Select
+                        value={vendorForm.hierachy}
+                        label="Hierarchy"
+                        onChange={(e) =>
+                            setVendorForm({
+                                ...vendorForm,
+                                hierachy:
+                                    e.target.value,
+                            })
+                        }
+                    >
+                        {getAllowedHierarchies().map(
+                            (level) => (
+                                <MenuItem
+                                    key={level}
+                                    value={level}
+                                >
+                                    {level
+                                        .replace(
+                                            "_",
+                                            " "
+                                        )
+                                        .toUpperCase()}
+                                </MenuItem>
+                            )
+                        )}
+                    </Select>
+                </FormControl>
+            </Grid>
+        </Grid>
+    </DialogContent>
+
+    <DialogActions>
+        <Button
+            onClick={() =>
+                setCreateVendorOpen(false)
+            }
+        >
+            Cancel
+        </Button>
+
+        <Button
+            variant="contained"
+            onClick={handleCreateVendor}
+            disabled={creatingVendor}
+        >
+            {creatingVendor ? (
+                <CircularProgress
+                    size={20}
+                    color="inherit"
+                />
+            ) : (
+                "Create Vendor"
+            )}
+        </Button>
+    </DialogActions>
+</Dialog>
         </Box>
     );
 };
