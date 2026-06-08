@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
 import {
     Alert,
     Avatar,
@@ -38,7 +37,8 @@ import {
     TrendingDown,
     TrendingUp,
 } from '@mui/icons-material';
-import { useAppDispatch, useAppSelector } from '../../store/hooks';
+import { useAppSelector } from '../../store/hooks';
+
 type TransactionStatus = 'success' | 'pending' | 'failed';
 type TransactionDirection = 'credit' | 'debit';
 type ChipColor = 'default' | 'primary' | 'secondary' | 'success' | 'warning' | 'info' | 'error';
@@ -70,16 +70,10 @@ type LedgerEntry = {
     status: TransactionStatus;
     created_at: string;
 };
+
 type LedgerSummary = {
     total_debits: number;
     total_credits: number;
-};
-
-const daysAgo = (days: number, hours = 0) => {
-    const date = new Date();
-    date.setDate(date.getDate() - days);
-    date.setHours(date.getHours() - hours);
-    return date.toISOString();
 };
 
 const formatCurrency = (value: number | string) =>
@@ -109,137 +103,184 @@ const directionColor = (direction: string): ChipColor => {
 
 const escapeCsv = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
+const API_BASE_URL = 'http://188.166.161.13:8061/vendor';
+
+const buildHeaders = (): HeadersInit => {
+    const token =
+        typeof window !== 'undefined'
+            ? localStorage.getItem('token') ||
+              localStorage.getItem('access_token') ||
+              localStorage.getItem('accessToken')
+            : null;
+    return {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+};
+
 const TransactionManagement: React.FC = () => {
     const { user } = useAppSelector((state) => state.auth);
+
     const [tabValue, setTabValue] = useState(0);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<TransactionStatus | 'all'>('all');
     const [directionFilter, setDirectionFilter] = useState<TransactionDirection | 'all'>('all');
-    
+
     const today = new Date();
     const past = new Date();
-        past.setDate(today.getDate() - 14);
-
-    const format = (d: Date) => d.toISOString().split("T")[0];
-    const [startDate, setStartDate] = useState(format(past));
+    past.setDate(today.getDate() - 14);
     const tomorrow = new Date();
-        tomorrow.setDate(today.getDate() + 1);
+    tomorrow.setDate(today.getDate() + 1);
+    const fmt = (d: Date) => d.toISOString().split('T')[0];
 
-    const [endDate, setEndDate] = useState(format(tomorrow));
+    const [startDate, setStartDate] = useState(fmt(past));
+    const [endDate, setEndDate] = useState(fmt(tomorrow));
+
+    // Transaction pagination state (0-indexed for MUI, 1-indexed for API)
     const [transactionPage, setTransactionPage] = useState(0);
+    const [transactionRowsPerPage, setTransactionRowsPerPage] = useState(5);
+    const [transactionTotal, setTransactionTotal] = useState(0);
+
+    // Ledger pagination state
     const [ledgerPage, setLedgerPage] = useState(0);
-    const [transactionRowsPerPage, setTransactionRowsPerPage] = useState(8);
-    const [ledgerRowsPerPage, setLedgerRowsPerPage] = useState(8);
+    const [ledgerRowsPerPage, setLedgerRowsPerPage] = useState(5);
+    const [ledgerTotal, setLedgerTotal] = useState(0);
+
     const [lastUpdated, setLastUpdated] = useState(new Date());
     const [success, setSuccess] = useState<string | null>(null);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
     const [loading, setLoading] = useState(false);
-    const [vendorId, setVendorId] = useState<string>('1');
-    const [summary, setSummary] = useState<LedgerSummary>({
-        total_debits: 0,
-        total_credits: 0,
-    });
-    const API_BASE_URL = 'http://188.166.161.13:8061/vendor';
-    const buildHeaders = (): HeadersInit => {
-        const token =
-            typeof window !== 'undefined'
-                ? localStorage.getItem('token') || localStorage.getItem('access_token') || localStorage.getItem('accessToken')
-                : null;
+    const [summary, setSummary] = useState<LedgerSummary>({ total_debits: 0, total_credits: 0 });
 
-        return {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        };
+    // ─── Fetch transactions (server-side page) ────────────────────────────────
+    const fetchTransactions = useCallback(
+        async (page: number, pageSize: number) => {
+            if (!startDate || !endDate) return;
+            try {
+                setLoading(true);
+                const url =
+                    `${API_BASE_URL}/transactions/?start_date=${startDate}&end_date=${endDate}` +
+                    `&vendor_id=${user?.id}&page=${page + 1}&page_size=${pageSize}`;
+
+                const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+                if (!res.ok) throw new Error('Transaction API failed');
+                const data = await res.json();
+
+                // API returns { count, next, previous, results }
+                setTransactionTotal(data.count ?? 0);
+
+                const mapped: Transaction[] = (data.results ?? []).map((item: any) => ({
+                    id: item.transaction_ref,
+                    reference: item.transaction_ref,
+                    status: item.status || 'success',
+                    org_name: item.vendor_name || item.org_name || 'Vendor',
+                    wallet_key: item.wallet_key || '-',
+                    category: item.category || 'Transaction',
+                    channel: item.channel || '-',
+                    direction: Number(item.amount) >= 0 ? 'credit' : 'debit',
+                    value: Math.abs(Number(item.amount || 0)),
+                    created_at: item.timestamp,
+                }));
+
+                setTransactions(mapped);
+            } catch (err) {
+                console.error('Transaction fetch error:', err);
+            } finally {
+                setLoading(false);
+            }
+        },
+        [startDate, endDate, user?.id]
+    );
+
+    // ─── Fetch ledger (server-side page) ──────────────────────────────────────
+    const fetchLedger = useCallback(
+        async (page: number, pageSize: number) => {
+            if (!startDate || !endDate) return;
+            try {
+                setLoading(true);
+                const url =
+                    `${API_BASE_URL}/ledger/?start_date=${startDate}&end_date=${endDate}` +
+                    `&vendor_id=${user?.id}&page=${page + 1}&page_size=${pageSize}`;
+
+                const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+                if (!res.ok) throw new Error('Ledger API failed');
+                const data = await res.json();
+
+                setLedgerTotal(data.count ?? 0);
+
+                const mapped: LedgerEntry[] = (data.results ?? []).map((item: any, index: number) => ({
+                    id: item.transaction_ref || `ledger-${index}`,
+                    ledger_ref: item.ledger_ref || `LEDGER-${index + 1}`,
+                    transaction_ref: item.transaction_ref,
+                    account: item.account || '-',
+                    org_name: item.vendor_name || item.org_name || 'Vendor',
+                    wallet_key: item.wallet_key || '-',
+                    direction: Number(item.credit_amount) > 0 ? 'credit' : 'debit',
+                    amount:
+                        Number(item.credit_amount || 0) ||
+                        Number(item.debit_amount || 0),
+                    balance_after: Number(item.balance_after || 0),
+                    narration: item.narration || '-',
+                    status: item.status || 'success',
+                    created_at: item.timestamp,
+                }));
+
+                setLedgerEntries(mapped);
+
+                setSummary({
+                    total_credits: Number(data.summary?.total_credits || 0),
+                    total_debits: Number(data.summary?.total_debits || 0),
+                });
+
+                setLastUpdated(new Date());
+            } catch (err) {
+                console.error('Ledger fetch error:', err);
+            } finally {
+                setLoading(false);
+            }
+        },
+        [startDate, endDate, user?.id]
+    );
+
+    // ─── Initial load & refetch when dates change ─────────────────────────────
+    useEffect(() => {
+        setTransactionPage(0);
+        setLedgerPage(0);
+        fetchTransactions(0, transactionRowsPerPage);
+        fetchLedger(0, ledgerRowsPerPage);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [startDate, endDate, user?.id]);
+
+    // ─── Transaction page / pageSize change ───────────────────────────────────
+    const handleTransactionPageChange = (_: unknown, newPage: number) => {
+        setTransactionPage(newPage);
+        fetchTransactions(newPage, transactionRowsPerPage);
     };
 
-    const fetchData = useCallback(async () => {
-        if (!startDate || !endDate) return;
-    try {
-        setLoading(true);
+    const handleTransactionRowsPerPageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const newSize = Number(event.target.value);
+        setTransactionRowsPerPage(newSize);
+        setTransactionPage(0);
+        fetchTransactions(0, newSize);
+    };
 
-        const transactionUrl = `${API_BASE_URL}/transactions/?start_date=${startDate}&end_date=${endDate}&vendor_id=${user?.id}`;
-        const ledgerUrl = `${API_BASE_URL}/ledger/?start_date=${startDate}&end_date=${endDate}&vendor_id=${user?.id}`;
+    // ─── Ledger page / pageSize change ────────────────────────────────────────
+    const handleLedgerPageChange = (_: unknown, newPage: number) => {
+        setLedgerPage(newPage);
+        fetchLedger(newPage, ledgerRowsPerPage);
+    };
 
-        const [transactionRes, ledgerRes] = await Promise.all([
-            fetch(transactionUrl, {
-                method: 'GET',
-                headers: buildHeaders(),
-            }),
-            fetch(ledgerUrl, {
-                method: 'GET',
-                headers: buildHeaders(),
-            }),
-        ]);
+    const handleLedgerRowsPerPageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const newSize = Number(event.target.value);
+        setLedgerRowsPerPage(newSize);
+        setLedgerPage(0);
+        fetchLedger(0, newSize);
+    };
 
-        // ❗ CHECK HTTP ERRORS
-        if (!transactionRes.ok) throw new Error('Transaction API failed');
-        if (!ledgerRes.ok) throw new Error('Ledger API failed');
-
-        // ✅ PARSE JSON (THIS WAS MISSING)
-        const transactionData = await transactionRes.json();
-        const ledgerData = await ledgerRes.json();
-
-        const transactionResults = transactionData?.results || [];
-        const ledgerResults = ledgerData?.results || [];
-
-        const mappedTransactions: Transaction[] = transactionResults.map(
-            (item: any, index: number) => ({
-                id: item.transaction_ref,
-                reference: item.transaction_ref,
-                status: item.status || 'success',
-                org_name: item.vendor_name || item.org_name || 'Vendor',
-                wallet_key: item.wallet_key || '-',
-                category: item.category || 'Transaction',
-                channel: item.channel || '-',
-                direction: Number(item.amount) >= 0 ? 'credit' : 'debit',
-                value: Number(item.amount || 0),
-                created_at: item.timestamp,
-            })
-        );
-
-        const mappedLedger: LedgerEntry[] = ledgerResults.map(
-            (item: any, index: number) => ({
-                id: item.transaction_ref,
-                ledger_ref: item.ledger_ref || `LEDGER-${index + 1}`,
-                transaction_ref: item.transaction_ref,
-                account: item.account || '-',
-                org_name: item.vendor_name || item.org_name || 'Vendor',
-                wallet_key: item.wallet_key || '-',
-                direction: Number(item.credit_amount) > 0 ? 'credit' : 'debit',
-                amount:
-                    Number(item.credit_amount || 0) ||
-                    Number(item.debit_amount || 0),
-                balance_after: Number(item.balance_after || 0),
-                narration: item.narration || '-',
-                status: item.status || 'success',
-                created_at: item.timestamp,
-            })
-        );
-
-        setTransactions(mappedTransactions);
-        setLedgerEntries(mappedLedger);
-
-        setSummary({
-            total_credits: Number(ledgerData?.summary?.total_credits || 0),
-            total_debits: Number(ledgerData?.summary?.total_debits || 0),
-        });
-
-        setLastUpdated(new Date());
-    } catch (error) {
-        console.error('Fetch error:', error);
-    } finally {
-        setLoading(false);
-    }
-}, [startDate, endDate, user?.id]);
-
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
+    // ─── Client-side search/status/direction filter on current page ───────────
     const filteredTransactions = useMemo(() => {
         const term = searchTerm.trim().toLowerCase();
-
         return transactions.filter((tx) => {
             const matchesSearch =
                 !term ||
@@ -248,27 +289,15 @@ const TransactionManagement: React.FC = () => {
                 tx.wallet_key.toLowerCase().includes(term) ||
                 tx.category.toLowerCase().includes(term) ||
                 tx.channel.toLowerCase().includes(term);
-
             const matchesStatus = statusFilter === 'all' || tx.status === statusFilter;
             const matchesDirection = directionFilter === 'all' || tx.direction === directionFilter;
-
-            const txDate = tx.created_at?.split('T')[0];
-
-            const matchesStart =
-                !startDate || txDate >= startDate;
-
-            const matchesEnd =
-                !endDate || txDate <= endDate;
-                        return matchesSearch && matchesStatus && matchesDirection && matchesStart && matchesEnd;
-                    });
-    }, [transactions, directionFilter, endDate, searchTerm, startDate, statusFilter]);
+            return matchesSearch && matchesStatus && matchesDirection;
+        });
+    }, [transactions, searchTerm, statusFilter, directionFilter]);
 
     const filteredLedger = useMemo(() => {
-        const transactionRefs = new Set(filteredTransactions.map((tx) => tx.reference));
         const term = searchTerm.trim().toLowerCase();
-
         return ledgerEntries.filter((entry) => {
-            const matchesTransactionFilter = transactionRefs.has(entry.transaction_ref);
             const matchesSearch =
                 !term ||
                 entry.ledger_ref.toLowerCase().includes(term) ||
@@ -277,44 +306,28 @@ const TransactionManagement: React.FC = () => {
                 entry.org_name.toLowerCase().includes(term) ||
                 entry.wallet_key.toLowerCase().includes(term) ||
                 entry.narration.toLowerCase().includes(term);
-
-            return matchesTransactionFilter && matchesSearch;
+            return matchesSearch;
         });
-    }, [ledgerEntries,filteredTransactions, searchTerm]);
+    }, [ledgerEntries, searchTerm]);
 
-    const paginatedTransactions = useMemo(
-        () =>
-            filteredTransactions.slice(
-                transactionPage * transactionRowsPerPage,
-                transactionPage * transactionRowsPerPage + transactionRowsPerPage
-            ),
-        [filteredTransactions, transactionPage, transactionRowsPerPage]
-    );
+    // ─── Refresh button ───────────────────────────────────────────────────────
+    const handleRefresh = () => {
+        fetchTransactions(transactionPage, transactionRowsPerPage);
+        fetchLedger(ledgerPage, ledgerRowsPerPage);
+    };
 
-    const paginatedLedger = useMemo(
-        () => filteredLedger.slice(ledgerPage * ledgerRowsPerPage, ledgerPage * ledgerRowsPerPage + ledgerRowsPerPage),
-        [filteredLedger, ledgerPage, ledgerRowsPerPage]
-    );
-
-    const totalCredits = Number(summary.total_credits || 0);
-
-    const totalDebits = Number(summary.total_debits || 0);
-
-    const netSum = totalCredits - totalDebits;
-
-    const totalTransactionsAmount =
-        totalCredits + totalDebits;
-
+    // ─── Reset filters ────────────────────────────────────────────────────────
     const resetFilters = () => {
         setSearchTerm('');
         setStatusFilter('all');
         setDirectionFilter('all');
-        setStartDate('');
-        setEndDate('');
+        setStartDate(fmt(past));
+        setEndDate(fmt(tomorrow));
         setTransactionPage(0);
         setLedgerPage(0);
     };
 
+    // ─── Export ───────────────────────────────────────────────────────────────
     const exportRows = useCallback(() => {
         const isLedger = tabValue === 1;
         const headers = isLedger
@@ -322,45 +335,33 @@ const TransactionManagement: React.FC = () => {
             : ['Date', 'Reference', 'Organisation', 'Wallet', 'Direction', 'Category', 'Channel', 'Amount', 'Status'];
 
         const rows = isLedger
-            ? filteredLedger.map((entry) => [
-                  formatDateTime(entry.created_at),
-                  entry.ledger_ref,
-                  entry.transaction_ref,
-                  entry.account,
-                  entry.org_name,
-                  entry.wallet_key,
-                  entry.direction,
-                  entry.amount,
-                  entry.balance_after,
-                  entry.status,
-                  entry.narration,
+            ? filteredLedger.map((e) => [
+                  formatDateTime(e.created_at), e.ledger_ref, e.transaction_ref,
+                  e.account, e.org_name, e.wallet_key, e.direction,
+                  e.amount, e.balance_after, e.status, e.narration,
               ])
             : filteredTransactions.map((tx) => [
-                  formatDateTime(tx.created_at),
-                  tx.reference,
-                  tx.org_name,
-                  tx.wallet_key,
-                  tx.direction,
-                  tx.category,
-                  tx.channel,
-                  tx.value,
-                  tx.status,
+                  formatDateTime(tx.created_at), tx.reference, tx.org_name,
+                  tx.wallet_key, tx.direction, tx.category, tx.channel,
+                  tx.value, tx.status,
               ]);
 
         const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\n');
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-
         link.href = url;
-        link.download = `${isLedger ? 'transaction-ledger' : 'transactions'}-${startDate || 'all'}-${endDate || 'all'}.csv`;
+        link.download = `${isLedger ? 'transaction-ledger' : 'transactions'}-${startDate}-${endDate}.csv`;
         document.body.appendChild(link);
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
+        setSuccess(`Exported ${rows.length} ${isLedger ? 'ledger entries' : 'transactions'} (current page)`);
+    }, [tabValue, filteredLedger, filteredTransactions, startDate, endDate]);
 
-        setSuccess(`Exported ${rows.length} ${isLedger ? 'ledger entries' : 'transactions'}`);
-    }, [endDate, filteredLedger, filteredTransactions, startDate, tabValue]);
+    const totalCredits = Number(summary.total_credits || 0);
+    const totalDebits = Number(summary.total_debits || 0);
+    const netSum = totalCredits - totalDebits;
 
     const handleFilterChange = (action: () => void) => {
         action();
@@ -370,16 +371,22 @@ const TransactionManagement: React.FC = () => {
 
     return (
         <Box p={{ xs: 2, md: 3 }}>
-            <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} spacing={2} mb={3}>
+            <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                justifyContent="space-between"
+                alignItems={{ xs: 'stretch', md: 'center' }}
+                spacing={2}
+                mb={3}
+            >
                 <Box>
                     <Typography variant="h4">Transactions</Typography>
                     <Typography variant="body2" color="text.secondary">
-                        Transaction records and ledger entries - updated {lastUpdated.toLocaleTimeString()}
+                        Transaction records and ledger entries — updated {lastUpdated.toLocaleTimeString()}
+                        {loading && ' · Loading…'}
                     </Typography>
                 </Box>
-
                 <Stack direction="row" spacing={1}>
-                    <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => setLastUpdated(new Date())}>
+                    <Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefresh} disabled={loading}>
                         Refresh
                     </Button>
                     <Button variant="contained" startIcon={<Download />} onClick={exportRows}>
@@ -388,6 +395,7 @@ const TransactionManagement: React.FC = () => {
                 </Stack>
             </Stack>
 
+            {/* Summary cards */}
             <Grid container spacing={2} mb={3}>
                 <Grid item xs={12} md={3}>
                     <Card sx={{ height: '100%', borderRadius: 1 }}>
@@ -397,14 +405,11 @@ const TransactionManagement: React.FC = () => {
                                     <Typography variant="body2" color="text.secondary">Total Credits</Typography>
                                     <Typography variant="h5" fontWeight={700} color="success.main">{formatCurrency(totalCredits)}</Typography>
                                 </Box>
-                                <Avatar sx={{ bgcolor: 'success.light', color: 'success.main' }}>
-                                    <TrendingUp />
-                                </Avatar>
+                                <Avatar sx={{ bgcolor: 'success.light', color: 'success.main' }}><TrendingUp /></Avatar>
                             </Stack>
                         </CardContent>
                     </Card>
                 </Grid>
-
                 <Grid item xs={12} md={3}>
                     <Card sx={{ height: '100%', borderRadius: 1 }}>
                         <CardContent>
@@ -413,14 +418,11 @@ const TransactionManagement: React.FC = () => {
                                     <Typography variant="body2" color="text.secondary">Total Debits</Typography>
                                     <Typography variant="h5" fontWeight={700} color="error.main">{formatCurrency(totalDebits)}</Typography>
                                 </Box>
-                                <Avatar sx={{ bgcolor: 'error.light', color: 'error.main' }}>
-                                    <TrendingDown />
-                                </Avatar>
+                                <Avatar sx={{ bgcolor: 'error.light', color: 'error.main' }}><TrendingDown /></Avatar>
                             </Stack>
                         </CardContent>
                     </Card>
                 </Grid>
-
                 <Grid item xs={12} md={3}>
                     <Card sx={{ height: '100%', borderRadius: 1 }}>
                         <CardContent>
@@ -431,9 +433,7 @@ const TransactionManagement: React.FC = () => {
                                         {formatCurrency(netSum)}
                                     </Typography>
                                 </Box>
-                                <Avatar sx={{ bgcolor: 'info.light', color: 'info.main' }}>
-                                    <AccountBalanceWallet />
-                                </Avatar>
+                                <Avatar sx={{ bgcolor: 'info.light', color: 'info.main' }}><AccountBalanceWallet /></Avatar>
                             </Stack>
                         </CardContent>
                     </Card>
@@ -444,30 +444,28 @@ const TransactionManagement: React.FC = () => {
                             <Stack direction="row" justifyContent="space-between">
                                 <Box>
                                     <Typography variant="body2" color="text.secondary">Records</Typography>
-                                    <Typography variant="h5" fontWeight={700}>{filteredTransactions.length}</Typography>
+                                    <Typography variant="h5" fontWeight={700}>{transactionTotal}</Typography>
                                     <Typography variant="caption" color="text.secondary">
-                                        {filteredLedger.length} ledger entries
+                                        {ledgerTotal} ledger entries
                                     </Typography>
                                 </Box>
-                                <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main' }}>
-                                    <Receipt />
-                                </Avatar>
+                                <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main' }}><Receipt /></Avatar>
                             </Stack>
                         </CardContent>
                     </Card>
                 </Grid>
             </Grid>
 
+            {/* Filters */}
             <Card sx={{ mb: 3, borderRadius: 1 }}>
                 <CardContent>
                     <Grid container spacing={2} alignItems="center">
                         <Grid item xs={12} md={3}>
                             <TextField
-                                fullWidth
-                                size="small"
+                                fullWidth size="small"
                                 placeholder="Search ref, org, wallet, category"
                                 value={searchTerm}
-                                onChange={(event) => handleFilterChange(() => setSearchTerm(event.target.value))}
+                                onChange={(e) => handleFilterChange(() => setSearchTerm(e.target.value))}
                                 InputProps={{
                                     startAdornment: (
                                         <InputAdornment position="start">
@@ -477,14 +475,12 @@ const TransactionManagement: React.FC = () => {
                                 }}
                             />
                         </Grid>
-
                         <Grid item xs={12} md={2}>
                             <FormControl fullWidth size="small">
                                 <InputLabel>Status</InputLabel>
                                 <Select
-                                    value={statusFilter}
-                                    label="Status"
-                                    onChange={(event) => handleFilterChange(() => setStatusFilter(event.target.value as TransactionStatus | 'all'))}
+                                    value={statusFilter} label="Status"
+                                    onChange={(e) => handleFilterChange(() => setStatusFilter(e.target.value as TransactionStatus | 'all'))}
                                 >
                                     <MenuItem value="all">All Status</MenuItem>
                                     <MenuItem value="success">Success</MenuItem>
@@ -493,14 +489,12 @@ const TransactionManagement: React.FC = () => {
                                 </Select>
                             </FormControl>
                         </Grid>
-
                         <Grid item xs={12} md={2}>
                             <FormControl fullWidth size="small">
                                 <InputLabel>Credit/Debit</InputLabel>
                                 <Select
-                                    value={directionFilter}
-                                    label="Credit/Debit"
-                                    onChange={(event) => handleFilterChange(() => setDirectionFilter(event.target.value as TransactionDirection | 'all'))}
+                                    value={directionFilter} label="Credit/Debit"
+                                    onChange={(e) => handleFilterChange(() => setDirectionFilter(e.target.value as TransactionDirection | 'all'))}
                                 >
                                     <MenuItem value="all">All Types</MenuItem>
                                     <MenuItem value="credit">Credit</MenuItem>
@@ -508,41 +502,29 @@ const TransactionManagement: React.FC = () => {
                                 </Select>
                             </FormControl>
                         </Grid>
-
                         <Grid item xs={12} md={2}>
                             <TextField
-                                fullWidth
-                                size="small"
-                                type="date"
-                                label="Start Date"
+                                fullWidth size="small" type="date" label="Start Date"
                                 value={startDate}
-                                onChange={(event) => handleFilterChange(() => setStartDate(event.target.value))}
+                                onChange={(e) => handleFilterChange(() => setStartDate(e.target.value))}
                                 InputLabelProps={{ shrink: true }}
                             />
                         </Grid>
-
                         <Grid item xs={12} md={2}>
                             <TextField
-                                fullWidth
-                                size="small"
-                                type="date"
-                                label="End Date"
+                                fullWidth size="small" type="date" label="End Date"
                                 value={endDate}
-                                onChange={(event) => handleFilterChange(() => setEndDate(event.target.value))}
+                                onChange={(e) => handleFilterChange(() => setEndDate(e.target.value))}
                                 InputLabelProps={{ shrink: true }}
                             />
                         </Grid>
-
                         <Grid item xs={12} md={1}>
-                            <Button fullWidth onClick={resetFilters}>
-                                Reset
-                            </Button>
+                            <Button fullWidth onClick={resetFilters}>Reset</Button>
                         </Grid>
-
                         <Grid item xs={12}>
                             <Stack direction="row" spacing={1} flexWrap="wrap">
-                                <Chip label={`${filteredTransactions.length} transactions`} color="primary" variant="outlined" />
-                                <Chip label={`${filteredLedger.length} ledger rows`} color="info" variant="outlined" />
+                                <Chip label={`${transactionTotal} transactions`} color="primary" variant="outlined" />
+                                <Chip label={`${ledgerTotal} ledger rows`} color="info" variant="outlined" />
                                 <Chip label={`Credits: ${formatCurrency(totalCredits)}`} color="success" variant="outlined" />
                                 <Chip label={`Debits: ${formatCurrency(totalDebits)}`} color="error" variant="outlined" />
                             </Stack>
@@ -551,19 +533,20 @@ const TransactionManagement: React.FC = () => {
                 </CardContent>
             </Card>
 
+            {/* Tables */}
             <Paper variant="outlined" sx={{ borderRadius: 1 }}>
                 <Box px={2} pt={2}>
-                    <Tabs value={tabValue} onChange={(_, value) => setTabValue(value)} variant="scrollable" scrollButtons="auto">
-                        <Tab label={`Transactions (${filteredTransactions.length})`} />
-                        <Tab label={`Transaction Ledger (${filteredLedger.length})`} />
+                    <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} variant="scrollable" scrollButtons="auto">
+                        <Tab label={`Transactions (${transactionTotal})`} />
+                        <Tab label={`Transaction Ledger (${ledgerTotal})`} />
                     </Tabs>
                 </Box>
 
+                {/* ── Transactions tab ── */}
                 {tabValue === 0 && (
                     <Box p={2}>
                         <Typography variant="body2" color="text.secondary" mb={2}>
-                            Showing {filteredTransactions.length ? transactionPage * transactionRowsPerPage + 1 : 0}-
-                            {Math.min(filteredTransactions.length, transactionPage * transactionRowsPerPage + transactionRowsPerPage)} of {filteredTransactions.length}
+                            Page {transactionPage + 1} · showing {filteredTransactions.length} of {transactionRowsPerPage} per page · {transactionTotal} total
                         </Typography>
 
                         <TableContainer>
@@ -572,7 +555,6 @@ const TransactionManagement: React.FC = () => {
                                     <TableRow>
                                         <TableCell>Reference</TableCell>
                                         <TableCell>Status</TableCell>
-                                        {/* <TableCell>Vendor Name</TableCell> */}
                                         <TableCell>Type</TableCell>
                                         <TableCell>Category</TableCell>
                                         <TableCell align="right">Amount</TableCell>
@@ -580,53 +562,59 @@ const TransactionManagement: React.FC = () => {
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
-                                    {paginatedTransactions.map((tx) => (
-                                        <TableRow key={tx.id} hover>
-                                            <TableCell>
-                                                <Typography variant="body2" fontFamily="monospace">{tx.reference}</Typography>
-                                                <Typography variant="caption" color="text.secondary">{tx.channel}</Typography>
+                                    {filteredTransactions.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                                                {loading ? 'Loading…' : 'No transactions found'}
                                             </TableCell>
-                                            <TableCell>
-                                                <Chip label={tx.status} size="small" color={statusColor(tx.status)} />
-                                            </TableCell>
-                                            {/* <TableCell>{tx.org_name}</TableCell> */}
-                                            <TableCell>
-                                                <Chip label={tx.direction} size="small" color={directionColor(tx.direction)} />
-                                            </TableCell>
-                                            <TableCell>{tx.category}</TableCell>
-                                            <TableCell align="right">
-                                                <Typography fontWeight={700} color={tx.direction === 'credit' ? 'success.main' : 'error.main'}>
-                                                    {tx.direction === 'credit' ? '+' : '-'}
-                                                    {formatCurrency(tx.value)}
-                                                </Typography>
-                                            </TableCell>
-                                            <TableCell align="right">{formatDateTime(tx.created_at)}</TableCell>
                                         </TableRow>
-                                    ))}
+                                    ) : (
+                                        filteredTransactions.map((tx) => (
+                                            <TableRow key={tx.id} hover>
+                                                <TableCell>
+                                                    <Typography variant="body2" fontFamily="monospace">{tx.reference}</Typography>
+                                                    <Typography variant="caption" color="text.secondary">{tx.channel}</Typography>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Chip label={tx.status} size="small" color={statusColor(tx.status)} />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Chip label={tx.direction} size="small" color={directionColor(tx.direction)} />
+                                                </TableCell>
+                                                <TableCell>{tx.category}</TableCell>
+                                                <TableCell align="right">
+                                                    <Typography fontWeight={700} color={tx.direction === 'credit' ? 'success.main' : 'error.main'}>
+                                                        {tx.direction === 'credit' ? '+' : '-'}{formatCurrency(tx.value)}
+                                                    </Typography>
+                                                </TableCell>
+                                                <TableCell align="right">{formatDateTime(tx.created_at)}</TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
                                 </TableBody>
                             </Table>
                         </TableContainer>
 
+                        {/* count = total from API so MUI knows there are more pages */}
                         <TablePagination
                             component="div"
-                            count={filteredTransactions.length}
+                            count={transactionTotal}
                             page={transactionPage}
-                            onPageChange={(_, nextPage) => setTransactionPage(nextPage)}
+                            onPageChange={handleTransactionPageChange}
                             rowsPerPage={transactionRowsPerPage}
-                            onRowsPerPageChange={(event) => {
-                                setTransactionRowsPerPage(Number(event.target.value));
-                                setTransactionPage(0);
-                            }}
-                            rowsPerPageOptions={[5, 8, 12, 20, 50]}
+                            onRowsPerPageChange={handleTransactionRowsPerPageChange}
+                            rowsPerPageOptions={[5,
+                                //  10, 20, 50
+                            ]}
                         />
                     </Box>
                 )}
 
+                {/* ── Ledger tab ── */}
                 {tabValue === 1 && (
                     <Box p={2}>
                         <Typography variant="body2" color="text.secondary" mb={2}>
-                            Showing {filteredLedger.length ? ledgerPage * ledgerRowsPerPage + 1 : 0}-
-                            {Math.min(filteredLedger.length, ledgerPage * ledgerRowsPerPage + ledgerRowsPerPage)} of {filteredLedger.length}
+                            Page {ledgerPage + 1} · showing {filteredLedger.length} of {ledgerRowsPerPage} per page · {ledgerTotal} total
                         </Typography>
 
                         <TableContainer>
@@ -643,45 +631,55 @@ const TransactionManagement: React.FC = () => {
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
-                                    {paginatedLedger.map((entry) => (
-                                        <TableRow key={entry.id} hover>
-                                            <TableCell>
-                                                <Typography variant="body2" fontFamily="monospace">{entry.ledger_ref}</Typography>
-                                                <Typography variant="caption" color="text.secondary">{entry.narration}</Typography>
+                                    {filteredLedger.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                                                {loading ? 'Loading…' : 'No ledger entries found'}
                                             </TableCell>
-                                            <TableCell>{entry.transaction_ref}</TableCell>
-                                            <TableCell>{entry.org_name}</TableCell>
-                                            <TableCell>
-                                                <Chip label={entry.direction} size="small" color={directionColor(entry.direction)} />
-                                            </TableCell>
-                                            <TableCell align="right">{formatCurrency(entry.amount)}</TableCell>
-                                            <TableCell>
-                                                <Chip label={entry.status} size="small" color={statusColor(entry.status)} />
-                                            </TableCell>
-                                            <TableCell>{formatDateTime(entry.created_at)}</TableCell>
                                         </TableRow>
-                                    ))}
+                                    ) : (
+                                        filteredLedger.map((entry) => (
+                                            <TableRow key={entry.id} hover>
+                                                <TableCell>
+                                                    <Typography variant="body2" fontFamily="monospace">{entry.ledger_ref}</Typography>
+                                                    <Typography variant="caption" color="text.secondary">{entry.narration}</Typography>
+                                                </TableCell>
+                                                <TableCell>{entry.transaction_ref}</TableCell>
+                                                <TableCell>{entry.org_name}</TableCell>
+                                                <TableCell>
+                                                    <Chip label={entry.direction} size="small" color={directionColor(entry.direction)} />
+                                                </TableCell>
+                                                <TableCell align="right">{formatCurrency(entry.amount)}</TableCell>
+                                                <TableCell>
+                                                    <Chip label={entry.status} size="small" color={statusColor(entry.status)} />
+                                                </TableCell>
+                                                <TableCell>{formatDateTime(entry.created_at)}</TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
                                 </TableBody>
                             </Table>
                         </TableContainer>
 
                         <TablePagination
                             component="div"
-                            count={filteredLedger.length}
+                            count={ledgerTotal}
                             page={ledgerPage}
-                            onPageChange={(_, nextPage) => setLedgerPage(nextPage)}
+                            onPageChange={handleLedgerPageChange}
                             rowsPerPage={ledgerRowsPerPage}
-                            onRowsPerPageChange={(event) => {
-                                setLedgerRowsPerPage(Number(event.target.value));
-                                setLedgerPage(0);
-                            }}
-                            rowsPerPageOptions={[5, 8, 12, 20, 50]}
+                            onRowsPerPageChange={handleLedgerRowsPerPageChange}
+                            rowsPerPageOptions={[5, 10, 20, 50]}
                         />
                     </Box>
                 )}
             </Paper>
 
-            <Snackbar open={Boolean(success)} autoHideDuration={3000} onClose={() => setSuccess(null)} anchorOrigin={{ vertical: 'top', horizontal: 'right' }}>
+            <Snackbar
+                open={Boolean(success)}
+                autoHideDuration={3000}
+                onClose={() => setSuccess(null)}
+                anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+            >
                 <Alert severity="success" onClose={() => setSuccess(null)}>
                     {success}
                 </Alert>

@@ -11,6 +11,7 @@ import {
     Collapse,
     Divider,
     FormControl,
+    FormHelperText,
     Grid,
     IconButton,
     InputAdornment,
@@ -122,10 +123,8 @@ type VendorTreeNode = RelatedVendor & {
 
 const RELATED_CHILDREN_ENDPOINT = '/vendor/retrieve/related-children/';
 const RELATED_VENDOR_TRANSACTIONS_ENDPOINT = '/vendor/retrieve-children/transactions/';
-const RELATED_CHILDREN_BY_VENDOR_ENDPOINT =
-    '/vendor/retrieve/related-children/?vendor_id=';
-const VENDOR_ANALYTICS_ENDPOINT =
-    '/vendor/children/analytics/';
+const RELATED_CHILDREN_BY_VENDOR_ENDPOINT = '/vendor/retrieve/related-children/?vendor_id=';
+const VENDOR_ANALYTICS_ENDPOINT = '/vendor/children/analytics/';
 
 const LEVEL_OPTIONS: { label: string; value: VendorLevel }[] = [
     { label: 'Vendor', value: 'vendor' },
@@ -179,33 +178,23 @@ const levelLabel = (value?: string) => {
 
 const levelColor = (value?: string): ChipColor => {
     switch (normalizeLevel(value)) {
-        case 'vendor':
-            return 'primary';
-        case 'sub_vendor':
-            return 'success';
-        case 'agent':
-            return 'warning';
-        case 'cashier':
-            return 'info';
-        case 'pos':
-            return 'secondary';
-        default:
-            return 'default';
+        case 'vendor': return 'primary';
+        case 'sub_vendor': return 'success';
+        case 'agent': return 'warning';
+        case 'cashier': return 'info';
+        case 'pos': return 'secondary';
+        default: return 'default';
     }
 };
 
 const statusColor = (status?: string): ChipColor => {
     switch ((status || '').toLowerCase()) {
-        case 'active':
-            return 'success';
+        case 'active': return 'success';
         case 'inactive':
-        case 'suspended':
-            return 'warning';
+        case 'suspended': return 'warning';
         case 'pending':
-        case 'review':
-            return 'info';
-        default:
-            return 'default';
+        case 'review': return 'info';
+        default: return 'default';
     }
 };
 
@@ -227,7 +216,6 @@ const buildHeaders = (): HeadersInit => {
         typeof window !== 'undefined'
             ? localStorage.getItem('token') || localStorage.getItem('access_token') || localStorage.getItem('accessToken')
             : null;
-
     return {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -236,52 +224,63 @@ const buildHeaders = (): HeadersInit => {
 
 const escapeCsv = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
+/**
+ * Extract a human-readable error string from whatever shape DRF returns.
+ * Handles: { detail }, { message }, { error }, { field: ["msg"] }, { non_field_errors: [] }
+ */
+const extractBackendError = (data: any): string => {
+    if (!data || typeof data !== 'object') return 'An unexpected error occurred';
+
+    // Plain string fields
+    if (typeof data.detail === 'string') return data.detail;
+    if (typeof data.message === 'string') return data.message;
+    if (typeof data.error === 'string') return data.error;
+
+    // non_field_errors array
+    if (Array.isArray(data.non_field_errors) && data.non_field_errors.length) {
+        return data.non_field_errors.join(' ');
+    }
+
+    // Field-keyed errors: { email: ["already exists"], phone: ["invalid"] }
+    const fieldMessages: string[] = [];
+    for (const [key, val] of Object.entries(data)) {
+        if (Array.isArray(val)) {
+            fieldMessages.push(`${key}: ${(val as string[]).join(', ')}`);
+        }
+    }
+    if (fieldMessages.length) return fieldMessages.join(' | ');
+
+    return 'An unexpected error occurred';
+};
+
 const buildVendorTree = (vendors: RelatedVendor[]): VendorTreeNode[] => {
     const map = new Map<number, VendorTreeNode>();
-
-    vendors.forEach((vendor) => {
-        map.set(vendor.id, { ...vendor, children: [] });
-    });
-
+    vendors.forEach((vendor) => { map.set(vendor.id, { ...vendor, children: [] }); });
     const roots: VendorTreeNode[] = [];
-
     vendors.forEach((vendor) => {
         const node = map.get(vendor.id);
         const parentId = vendor.related_vendor?.id;
-
         if (!node) return;
-
         if (parentId && map.has(parentId)) {
             map.get(parentId)?.children.push(node);
         } else {
             roots.push(node);
         }
     });
-
     return roots;
 };
 
 const StatCard = ({
-    title,
-    value,
-    icon,
-    color = 'primary',
+    title, value, icon, color = 'primary',
 }: {
-    title: string;
-    value: React.ReactNode;
-    icon: React.ReactNode;
-    color?: MuiColor;
+    title: string; value: React.ReactNode; icon: React.ReactNode; color?: MuiColor;
 }) => (
     <Card sx={{ height: '100%', borderRadius: 1 }}>
         <CardContent>
             <Stack direction="row" justifyContent="space-between" spacing={2}>
                 <Box>
-                    <Typography variant="body2" color="text.secondary">
-                        {title}
-                    </Typography>
-                    <Typography variant="h5" fontWeight={700}>
-                        {value}
-                    </Typography>
+                    <Typography variant="body2" color="text.secondary">{title}</Typography>
+                    <Typography variant="h5" fontWeight={700}>{value}</Typography>
                 </Box>
                 <Avatar sx={{ bgcolor: `${color}.light`, color: `${color}.main` }}>{icon}</Avatar>
             </Stack>
@@ -289,16 +288,27 @@ const StatCard = ({
     </Card>
 );
 
+const EMPTY_FORM = {
+    business_name: '',
+    email: '',
+    phone_number: '',
+    address: '',
+    city: '',
+    state: '',
+    country: 'Nigeria',
+    postal_code: '',
+    hierachy: '',
+};
+
 const VendorManagement: React.FC = () => {
     const { user } = useAppSelector((state) => state.auth);
-    // const today = new Date().toISOString().split('T')[0];
+
     const today = new Date();
     const past = new Date();
-            past.setDate(today.getDate() - 14);
-    
-    const format = (d: Date) => d.toISOString().split("T")[0];
-        const tomorrow = new Date();
-            tomorrow.setDate(today.getDate() + 1);
+    past.setDate(today.getDate() - 14);
+    const format = (d: Date) => d.toISOString().split('T')[0];
+    const tomorrow = new Date();
+    tomorrow.setDate(today.getDate() + 1);
 
     const [vendors, setVendors] = useState<RelatedVendor[]>([]);
     const [selectedVendor, setSelectedVendor] = useState<RelatedVendor | null>(null);
@@ -323,7 +333,6 @@ const VendorManagement: React.FC = () => {
     const [transactionRowsPerPage, setTransactionRowsPerPage] = useState(5);
     const [transactionSearch, setTransactionSearch] = useState('');
 
-    
     const [transactionStartDate, setTransactionStartDate] = useState(format(past));
     const [transactionEndDate, setTransactionEndDate] = useState(format(tomorrow));
 
@@ -332,183 +341,118 @@ const VendorManagement: React.FC = () => {
 
     const [cardstartDate, setCardStartDate] = useState(format(past));
     const [cardendDate, setCardEndDate] = useState(format(tomorrow));
+
+    // ── form state ────────────────────────────────────────────────────────────
+    const [vendorForm, setVendorForm] = useState({ ...EMPTY_FORM });
+    // fieldErrors drives red borders; dialogError shows the API / validation message
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+    const [dialogError, setDialogError] = useState<string | null>(null);
+
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(8);
-    const [analytics, setAnalytics] =
-        useState<VendorAnalytics>({
-            total_balance: 0,
-            total_transactions: 0,
-            processed_today: 0,
-            active: 0,
-        });
-    const [analyticsLoading, setAnalyticsLoading] =
-        useState(false);
-    const currentHierarchy = user?.related_vendor?.hierachy || "vendor";
-    const [vendorForm, setVendorForm] = useState({
-        business_name: "",
-        email: "",
-        phone_number: "",
-        address: "",
-        city: "",
-        state: "",
-        country: "Nigeria",
-        postal_code: "",
-        hierachy: "",
+    const [analytics, setAnalytics] = useState<VendorAnalytics>({
+        total_balance: 0,
+        total_transactions: 0,
+        processed_today: 0,
+        active: 0,
     });
+    const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+    const currentHierarchy = user?.related_vendor?.hierachy || 'vendor';
+
     const getAllowedHierarchies = () => {
         switch (currentHierarchy) {
-            case "vendor":
-                return [
-                    "sub_vendor",
-                    "agent",
-                    "cashier",
-                    "pos",
-                ];
-
-            case "sub_vendor":
-                return [
-                    "agent",
-                    "cashier",
-                    "pos",
-                ];
-
-            case "agent":
-                return [
-                    "cashier",
-                    "pos",
-                ];
-
-            case "cashier":
-                return ["pos"];
-
-            default:
-                return [];
+            case 'vendor': return ['sub_vendor', 'agent', 'cashier', 'pos'];
+            case 'sub_vendor': return ['agent', 'cashier', 'pos'];
+            case 'agent': return ['cashier', 'pos'];
+            case 'cashier': return ['pos'];
+            default: return [];
         }
     };
-    const validateVendorForm = () => {
+
+    // ── validation ────────────────────────────────────────────────────────────
+    const validateVendorForm = (): boolean => {
         const errors: Record<string, string> = {};
-
-        if (!vendorForm.business_name.trim()) {
-            errors.business_name = "Business Name is required";
-        }
-
-        if (!vendorForm.email.trim()) {
-            errors.email = "Email is required";
-        }
-
-        if (!vendorForm.phone_number.trim()) {
-            errors.phone_number = "Phone Number is required";
-        }
-
-        if (!vendorForm.address.trim()) {
-            errors.address = "Address is required";
-        }
-
-        if (!vendorForm.city.trim()) {
-            errors.city = "City is required";
-        }
-
-        if (!vendorForm.state.trim()) {
-            errors.state = "State is required";
-        }
-
-        if (!vendorForm.postal_code.trim()) {
-            errors.postal_code = "Postal Code is required";
-        }
-
-        if (!vendorForm.hierachy) {
-            errors.hierachy = "Select hierarchy";
-        }
-
+        if (!vendorForm.business_name.trim()) errors.business_name = 'Business Name is required';
+        if (!vendorForm.email.trim()) errors.email = 'Email is required';
+        if (!vendorForm.phone_number.trim()) errors.phone_number = 'Phone Number is required';
+        if (!vendorForm.address.trim()) errors.address = 'Address is required';
+        if (!vendorForm.city.trim()) errors.city = 'City is required';
+        if (!vendorForm.state.trim()) errors.state = 'State is required';
+        if (!vendorForm.postal_code.trim()) errors.postal_code = 'Postal Code is required';
+        if (!vendorForm.hierachy) errors.hierachy = 'Hierarchy is required';
         setFieldErrors(errors);
-
-        return Object.keys(errors).length === 0;
+        return Object.keys(errors).length === 0; // true = valid
     };
-    const handleCreateVendor = async () => {
-        const error = validateVendorForm();
-        console.log({ error, fieldErrors });
-        if (error) {
-            setError("Please fix the form errors before submitting");
-            return;
+
+    // clear a single field error as the user types
+    const clearFieldError = (field: string) => {
+        if (fieldErrors[field]) {
+            setFieldErrors((prev) => {
+                const next = { ...prev };
+                delete next[field];
+                return next;
+            });
         }
+    };
+
+    // ── create vendor ─────────────────────────────────────────────────────────
+    const handleCreateVendor = async () => {
+        setDialogError(null);
+        const isValid = validateVendorForm(); // FIX: was inverted — `if (error)` blocked valid submissions
+        if (!isValid) return; // field borders are already red via fieldErrors
 
         setCreatingVendor(true);
-
         try {
-            const response = await fetch(
-                "http://188.166.161.13:8061/vendor/create/",
-                {
-                    method: "POST",
-                    headers: buildHeaders(),
-                    body: JSON.stringify({
-                        ...vendorForm,
-                        related_vendor:
-                            user?.related_vendor?.id,
-                    }),
-                }
-            );
+            const response = await fetch('http://188.166.161.13:8061/vendor/create/', {
+                method: 'POST',
+                headers: buildHeaders(),
+                body: JSON.stringify({
+                    ...vendorForm,
+                    related_vendor: user?.related_vendor?.id,
+                }),
+            });
 
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(
-                    data?.message ||
-                        "Failed to create vendor"
-                );
+                // Surface the actual backend message, not a hardcoded string
+                const msg = extractBackendError(data);
+                setDialogError(msg);
+                return;
             }
 
-            setSuccess("Vendor created successfully");
-
+            setSuccess('Vendor created successfully');
             setCreateVendorOpen(false);
-
-            setVendorForm({
-                business_name: "",
-                email: "",
-                phone_number: "",
-                address: "",
-                city: "",
-                state: "",
-                country: "Nigeria",
-                postal_code: "",
-                hierachy: "",
-            });
-
+            setVendorForm({ ...EMPTY_FORM });
+            setFieldErrors({});
+            setDialogError(null);
             await fetchRelatedVendors();
-
         } catch (err: any) {
-            console.error(err);
-            setError(
-                err.message ||
-                    "Failed to create vendor"
-            );
+            setDialogError(err.message || 'Failed to create vendor — please try again');
         } finally {
             setCreatingVendor(false);
         }
     };
+
+    const handleCloseDialog = () => {
+        setCreateVendorOpen(false);
+        setVendorForm({ ...EMPTY_FORM });
+        setFieldErrors({});
+        setDialogError(null);
+    };
+
+    // ── analytics ─────────────────────────────────────────────────────────────
     const fetchVendorAnalytics = useCallback(async () => {
         setAnalyticsLoading(true);
-
         try {
-            const params = new URLSearchParams({
-                start_date: cardstartDate,
-                end_date: cardendDate,
-            });
-
+            const params = new URLSearchParams({ start_date: cardstartDate, end_date: cardendDate });
             const response = await fetch(
                 `http://188.166.161.13:8061${VENDOR_ANALYTICS_ENDPOINT}?${params.toString()}`,
-                {
-                    method: 'GET',
-                    headers: buildHeaders(),
-                }
+                { method: 'GET', headers: buildHeaders() }
             );
-
-            if (!response.ok) {
-                throw new Error('Failed analytics');
-            }
-
+            if (!response.ok) throw new Error('Failed analytics');
             const payload = await response.json();
-
             setAnalytics({
                 total_balance: Number(payload.total_balance || 0),
                 total_transactions: Number(payload.total_transactions || 0),
@@ -522,63 +466,39 @@ const VendorManagement: React.FC = () => {
         }
     }, [cardstartDate, cardendDate]);
 
-    const handleDeleteVendor = async (
-        vendorId: number
-    ) => {
-        const confirmed = window.confirm(
-            'Are you sure you want to delete this vendor?'
-        );
-
-        if (!confirmed) return;
-
+    const handleDeleteVendor = async (vendorId: number) => {
+        if (!window.confirm('Are you sure you want to delete this vendor?')) return;
         try {
             const response = await fetch(
                 `http://188.166.161.13:8061/vendor/delete/${vendorId}/`,
-                {
-                    method: 'DELETE',
-                    headers: buildHeaders(),
-                }
+                { method: 'DELETE', headers: buildHeaders() }
             );
-
-            if (!response.ok) {
-                throw new Error('Failed to delete vendor');
-            }
-
+            if (!response.ok) throw new Error('Failed to delete vendor');
             setSuccess('Vendor deleted successfully');
-
             setSelectedVendor(null);
-
             fetchRelatedVendors();
         } catch (error) {
             console.error(error);
             setError('Failed to delete vendor');
         }
     };
+
     const fetchRelatedVendors = useCallback(async () => {
         setLoading(true);
         setError(null);
-
         const params = new URLSearchParams();
         if (levelFilter !== 'all') params.set('hierachy', levelFilter);
-        if (statusFilter !== 'all') {
-            params.set('account_status', statusFilter);
-            params.set('status', statusFilter);
-        }
+        if (statusFilter !== 'all') { params.set('account_status', statusFilter); params.set('status', statusFilter); }
         if (searchTerm.trim()) params.set('search', searchTerm.trim());
         if (startDate) params.set('start_date', startDate);
         if (endDate) params.set('end_date', endDate);
-
         try {
             const query = params.toString();
-            const response = await fetch(`http://188.166.161.13:8061${RELATED_CHILDREN_ENDPOINT}${query ? `?${query}` : ''}`, {
-                method: 'GET',
-                headers: buildHeaders(),
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to retrieve related vendors (${response.status})`);
-            }
-
+            const response = await fetch(
+                `http://188.166.161.13:8061${RELATED_CHILDREN_ENDPOINT}${query ? `?${query}` : ''}`,
+                { method: 'GET', headers: buildHeaders() }
+            );
+            if (!response.ok) throw new Error(`Failed to retrieve related vendors (${response.status})`);
             const payload = await response.json();
             setVendors(parseVendorList(payload));
             setLastUpdated(new Date());
@@ -591,13 +511,8 @@ const VendorManagement: React.FC = () => {
     }, [endDate, levelFilter, searchTerm, startDate, statusFilter]);
 
     const fetchVendorTransactions = useCallback(
-        async (
-            vendorId: number,
-            page = 1,
-            pageSize = 5
-        ) => {
+        async (vendorId: number, page = 1, pageSize = 5) => {
             setTransactionLoading(true);
-
             try {
                 const params = new URLSearchParams({
                     vendor_id: String(vendorId),
@@ -606,46 +521,22 @@ const VendorManagement: React.FC = () => {
                     start_date: transactionStartDate,
                     end_date: transactionEndDate,
                 });
-
-                if (transactionSearch.trim()) {
-                    params.set('search', transactionSearch);
-                }
-
+                if (transactionSearch.trim()) params.set('search', transactionSearch);
                 const response = await fetch(
                     `http://188.166.161.13:8061${RELATED_VENDOR_TRANSACTIONS_ENDPOINT}?${params.toString()}`,
-                    {
-                        method: 'GET',
-                        headers: buildHeaders(),
-                    }
+                    { method: 'GET', headers: buildHeaders() }
                 );
-
-                if (!response.ok) {
-                    throw new Error(
-                        `Failed to retrieve vendor transactions (${response.status})`
-                    );
-                }
-
-                const payload =
-                    (await response.json()) as TransactionResponse;
-
+                if (!response.ok) throw new Error(`Failed to retrieve vendor transactions (${response.status})`);
+                const payload = (await response.json()) as TransactionResponse;
                 const sorted = [...(payload.results || [])].sort(
-                    (a, b) =>
-                        new Date(b.timestamp).getTime() -
-                        new Date(a.timestamp).getTime()
+                    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
                 );
-
                 const enriched = sorted.map((trx) => ({
                     ...trx,
-                    vendor_name:
-                        trx.vendor?.business_name ||
-                        selectedVendor?.business_name ||
-                        'Unknown Vendor',
+                    vendor_name: trx.vendor?.business_name || selectedVendor?.business_name || 'Unknown Vendor',
                 }));
-
                 setSelectedTransactions(enriched);
-                setSelectedTransactionCount(
-                    Number(payload.count || 0)
-                );
+                setSelectedTransactionCount(Number(payload.count || 0));
             } catch (error) {
                 console.error(error);
                 setSelectedTransactions([]);
@@ -654,64 +545,33 @@ const VendorManagement: React.FC = () => {
                 setTransactionLoading(false);
             }
         },
-        [
-            transactionSearch,
-            transactionStartDate,
-            transactionEndDate,
-            selectedVendor,
-        ]
+        [transactionSearch, transactionStartDate, transactionEndDate, selectedVendor]
     );
 
-    const fetchVendorChildren = useCallback(
-        async (vendorId: number) => {
-            setDetailLoading(true);
-
-            try {
-                const response = await fetch(
-                    `http://188.166.161.13:8061${RELATED_CHILDREN_BY_VENDOR_ENDPOINT}${vendorId}`,
-                    {
-                        method: 'GET',
-                        headers: buildHeaders(),
-                    }
-                );
-
-                if (!response.ok) {
-                    throw new Error(
-                        `Failed to retrieve vendor hierarchy`
-                    );
-                }
-
-                const payload = await response.json();
-
-                const children = parseVendorList(payload);
-
-                setSelectedChildren(children);
-            } catch (error) {
-                console.error(error);
-                setSelectedChildren([]);
-            } finally {
-                setDetailLoading(false);
-            }
-        },
-        []
-    );
-useEffect(() => {
-        if (selectedVendor) {
-            fetchVendorTransactions(
-                selectedVendor.id,
-                transactionPage + 1,
-                transactionRowsPerPage
+    const fetchVendorChildren = useCallback(async (vendorId: number) => {
+        setDetailLoading(true);
+        try {
+            const response = await fetch(
+                `http://188.166.161.13:8061${RELATED_CHILDREN_BY_VENDOR_ENDPOINT}${vendorId}`,
+                { method: 'GET', headers: buildHeaders() }
             );
+            if (!response.ok) throw new Error('Failed to retrieve vendor hierarchy');
+            const payload = await response.json();
+            setSelectedChildren(parseVendorList(payload));
+        } catch (error) {
+            console.error(error);
+            setSelectedChildren([]);
+        } finally {
+            setDetailLoading(false);
         }
-    }, [
-        selectedVendor,
-        transactionPage,
-        transactionRowsPerPage,
-        transactionSearch,
-        transactionStartDate,
-        transactionEndDate,
-        fetchVendorTransactions,
-    ]);
+    }, []);
+
+    useEffect(() => {
+        if (selectedVendor) {
+            fetchVendorTransactions(selectedVendor.id, transactionPage + 1, transactionRowsPerPage);
+        }
+    }, [selectedVendor, transactionPage, transactionRowsPerPage, transactionSearch, transactionStartDate, transactionEndDate, fetchVendorTransactions]);
+
     useEffect(() => {
         fetchRelatedVendors();
         fetchVendorAnalytics();
@@ -719,11 +579,9 @@ useEffect(() => {
 
     const filteredVendors = useMemo(() => {
         const term = searchTerm.trim().toLowerCase();
-
         return vendors.filter((vendor) => {
             const level = normalizeLevel(vendor.hierachy);
             const status = (vendor.account_status || '').toLowerCase();
-
             const matchesSearch =
                 !term ||
                 vendor.business_name?.toLowerCase().includes(term) ||
@@ -732,14 +590,11 @@ useEffect(() => {
                 vendor.city?.toLowerCase().includes(term) ||
                 vendor.state?.toLowerCase().includes(term) ||
                 vendor.related_vendor?.business_name?.toLowerCase().includes(term);
-
             const matchesLevel = levelFilter === 'all' || level === levelFilter;
             const matchesStatus = statusFilter === 'all' || status === statusFilter;
-
             const created = new Date(vendor.created_at).getTime();
             const matchesStart = !startDate || created >= new Date(`${startDate}T00:00:00`).getTime();
             const matchesEnd = !endDate || created <= new Date(`${endDate}T23:59:59`).getTime();
-
             return matchesSearch && matchesLevel && matchesStatus && matchesStart && matchesEnd;
         });
     }, [endDate, levelFilter, searchTerm, startDate, statusFilter, vendors]);
@@ -752,17 +607,12 @@ useEffect(() => {
     const stats = useMemo(() => {
         const idsByLevel = (level: VendorLevel) => {
             const ids = new Set<number>();
-
             vendors.forEach((vendor) => {
                 if (normalizeLevel(vendor.hierachy) === level) ids.add(vendor.id);
-                if (vendor.related_vendor && normalizeLevel(vendor.related_vendor.hierachy) === level) {
-                    ids.add(vendor.related_vendor.id);
-                }
+                if (vendor.related_vendor && normalizeLevel(vendor.related_vendor.hierachy) === level) ids.add(vendor.related_vendor.id);
             });
-
             return ids.size;
         };
-
         return {
             total: vendors.length,
             vendors: idsByLevel('vendor'),
@@ -770,34 +620,27 @@ useEffect(() => {
             agents: idsByLevel('agent'),
             cashiers: idsByLevel('cashier'),
             pos: idsByLevel('pos'),
-            active: vendors.filter((vendor) => vendor.account_status?.toLowerCase() === 'active').length,
-            walletBalance: vendors.reduce((sum, vendor) => sum + getWalletBalance(vendor), 0),
+            active: vendors.filter((v) => v.account_status?.toLowerCase() === 'active').length,
+            walletBalance: vendors.reduce((sum, v) => sum + getWalletBalance(v), 0),
         };
     }, [vendors]);
 
     const selectedVendorTree = useMemo(() => buildVendorTree(selectedChildren), [selectedChildren]);
-
     const selectedDirectChildrenCount = selectedVendor
         ? selectedChildren.filter((child) => child.related_vendor?.id === selectedVendor.id).length || selectedChildren.length
         : 0;
-
     const getDirectChildCount = (vendorId: number) =>
-        vendors.filter((vendor) => vendor.related_vendor?.id === vendorId).length;
+        vendors.filter((v) => v.related_vendor?.id === vendorId).length;
 
     const resetFilters = () => {
-        setSearchTerm('');
-        setLevelFilter('all');
-        setStatusFilter('all');
-        setStartDate('');
-        setEndDate('');
-        setPage(0);
+        setSearchTerm(''); setLevelFilter('all'); setStatusFilter('all');
+        setStartDate(''); setEndDate(''); setPage(0);
     };
 
     const toggleExpanded = (id: number) => {
         setExpandedIds((prev) => {
             const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
+            next.has(id) ? next.delete(id) : next.add(id);
             return next;
         });
     };
@@ -808,18 +651,10 @@ useEffect(() => {
             setShowFullDetails(false);
             setExpandedIds(new Set([vendor.id]));
             fetchVendorChildren(vendor.id);
-            fetchVendorTransactions(
-                vendor.id,
-                1,
-                transactionRowsPerPage
-            );
-
-            if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+            fetchVendorTransactions(vendor.id, 1, transactionRowsPerPage);
+            if (typeof window !== 'undefined') {
                 window.setTimeout(() => {
-                    document.getElementById('vendor-detail-panel')?.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start',
-                    });
+                    document.getElementById('vendor-detail-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }, 80);
             }
         },
@@ -828,54 +663,23 @@ useEffect(() => {
 
     const exportVendors = () => {
         if (typeof document === 'undefined') return;
-
-        const headers = [
-            'ID',
-            'Business Name',
-            'Email',
-            'Phone',
-            'Hierarchy',
-            'Status',
-            'Wallet Type',
-            'Wallet Balance',
-            'City',
-            'State',
-            'Country',
-            'Related Vendor',
-            'Created At',
-            'Children Count',
-        ];
-
+        const headers = ['ID', 'Business Name', 'Email', 'Phone', 'Hierarchy', 'Status', 'Wallet Type', 'Wallet Balance', 'City', 'State', 'Country', 'Related Vendor', 'Created At', 'Children Count'];
         const rows = filteredVendors.map((vendor) => [
-            vendor.id,
-            vendor.business_name,
-            vendor.email,
-            vendor.phone_number,
-            levelLabel(vendor.hierachy),
-            vendor.account_status,
-            getWalletTypeName(vendor),
-            getWalletBalance(vendor),
-            vendor.city,
-            vendor.state,
-            vendor.country,
-            vendor.related_vendor?.business_name || '',
-            vendor.created_at,
-            getDirectChildCount(vendor.id),
+            vendor.id, vendor.business_name, vendor.email, vendor.phone_number,
+            levelLabel(vendor.hierachy), vendor.account_status, getWalletTypeName(vendor),
+            getWalletBalance(vendor), vendor.city, vendor.state, vendor.country,
+            vendor.related_vendor?.business_name || '', vendor.created_at, getDirectChildCount(vendor.id),
         ]);
-
-        const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-        const csv = [headers, ...rows].map((row) => row.map(escape).join(',')).join('\n');
+        const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\n');
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-
         link.href = url;
         link.download = `related-vendors-${startDate || 'all'}-${endDate || 'all'}.csv`;
         document.body.appendChild(link);
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
-
         setSuccess(`Exported ${rows.length} vendors`);
     };
 
@@ -884,22 +688,11 @@ useEffect(() => {
             {nodes.map((node) => {
                 const hasChildren = Boolean(node.children?.length);
                 const isExpanded = expandedIds.has(node.id);
-
                 return (
                     <Box key={node.id}>
-                        <ListItemButton
-                            selected={selectedVendor?.id === node.id}
-                            onClick={() => handleSelectVendor(node)}
-                            sx={{ pl: 2 + depth * 2 }}
-                        >
+                        <ListItemButton selected={selectedVendor?.id === node.id} onClick={() => handleSelectVendor(node)} sx={{ pl: 2 + depth * 2 }}>
                             {hasChildren ? (
-                                <IconButton
-                                    size="small"
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        toggleExpanded(node.id);
-                                    }}
-                                >
+                                <IconButton size="small" onClick={(e) => { e.stopPropagation(); toggleExpanded(node.id); }}>
                                     {isExpanded ? <ArrowDropDown /> : <ChevronRight />}
                                 </IconButton>
                             ) : (
@@ -927,14 +720,8 @@ useEffect(() => {
         <Box
             p={{ xs: 2, md: 3 }}
             sx={{
-                '@keyframes tableSlideIn': {
-                    from: { opacity: 0, transform: 'translateX(-28px)' },
-                    to: { opacity: 1, transform: 'translateX(0)' },
-                },
-                '@keyframes detailSlideIn': {
-                    from: { opacity: 0, transform: 'translateX(36px)' },
-                    to: { opacity: 1, transform: 'translateX(0)' },
-                },
+                '@keyframes tableSlideIn': { from: { opacity: 0, transform: 'translateX(-28px)' }, to: { opacity: 1, transform: 'translateX(0)' } },
+                '@keyframes detailSlideIn': { from: { opacity: 0, transform: 'translateX(36px)' }, to: { opacity: 1, transform: 'translateX(0)' } },
             }}
         >
             <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} spacing={2} mb={3}>
@@ -944,71 +731,27 @@ useEffect(() => {
                         Live related vendors - updated {lastUpdated.toLocaleTimeString()}
                     </Typography>
                 </Box>
-                <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                spacing={2}
-                alignItems={{ xs: 'stretch', sm: 'center' }}
-            >
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                    <TextField
-                        label="Start Date"
-                        type="date"
-                        size="small"
-                        value={cardstartDate}
-                        onChange={(e) => setCardStartDate(e.target.value)}
-                        InputLabelProps={{
-                            shrink: true,
-                        }}
-                    />
-
-                    <TextField
-                        label="End Date"
-                        type="date"
-                        size="small"
-                        value={cardendDate}
-                        onChange={(e) => setCardEndDate(e.target.value)}
-                        InputLabelProps={{
-                            shrink: true,
-                        }}
-                    />
-                </Stack>
-
-                <Stack direction="row" spacing={1}>
-                    <Button
-                        variant="outlined"
-                        startIcon={<Refresh />}
-                        onClick={() => {
-                            fetchRelatedVendors();
-                            fetchVendorAnalytics();
-                        }}
-                        disabled={loading || analyticsLoading}
-                    >
-                        Refresh
-                    </Button>
-
-                    <Button
-                        variant="contained"
-                        startIcon={<Download />}
-                        onClick={exportVendors}
-                        disabled={!filteredVendors.length}
-                    >
-                        Export
-                    </Button>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                        <TextField label="Start Date" type="date" size="small" value={cardstartDate} onChange={(e) => setCardStartDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+                        <TextField label="End Date" type="date" size="small" value={cardendDate} onChange={(e) => setCardEndDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+                    </Stack>
+                    <Stack direction="row" spacing={1}>
+                        <Button variant="outlined" startIcon={<Refresh />} onClick={() => { fetchRelatedVendors(); fetchVendorAnalytics(); }} disabled={loading || analyticsLoading}>
+                            Refresh
+                        </Button>
+                        <Button variant="contained" startIcon={<Download />} onClick={exportVendors} disabled={!filteredVendors.length}>
+                            Export
+                        </Button>
+                    </Stack>
                 </Stack>
             </Stack>
-            </Stack>
 
-            {error && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                    {error}
-                </Alert>
-            )}
+            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
             <Grid container spacing={2} mb={3}>
                 <Grid item xs={12} md={3}>
-                    <StatCard
-                        title="Today’s Processed Volume"
-                        value={formatCurrency(analytics.processed_today)} icon={<Business />} color="primary" />
+                    <StatCard title="Today's Processed Volume" value={formatCurrency(analytics.processed_today)} icon={<Business />} color="primary" />
                 </Grid>
                 <Grid item xs={12} md={3}>
                     <StatCard title="Active Vendors" value={formatNumber(analytics.active)} icon={<CheckCircle />} color="success" />
@@ -1027,110 +770,48 @@ useEffect(() => {
                         <CardContent>
                             <Grid container spacing={2} alignItems="center">
                                 <Grid item xs={12} md={4}>
-                                    <TextField
-                                        fullWidth
-                                        size="small"
-                                        placeholder="Search business, email, phone, city"
-                                        value={searchTerm}
-                                        onChange={(event) => {
-                                            setSearchTerm(event.target.value);
-                                            setPage(0);
-                                        }}
-                                        InputProps={{
-                                            startAdornment: (
-                                                <InputAdornment position="start">
-                                                    <Search fontSize="small" />
-                                                </InputAdornment>
-                                            ),
-                                        }}
+                                    <TextField fullWidth size="small" placeholder="Search business, email, phone, city" value={searchTerm}
+                                        onChange={(e) => { setSearchTerm(e.target.value); setPage(0); }}
+                                        InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
                                     />
                                 </Grid>
-
                                 <Grid item xs={12} md={2}>
                                     <FormControl fullWidth size="small">
                                         <InputLabel>Hierarchy</InputLabel>
-                                        <Select
-                                            value={levelFilter}
-                                            label="Hierarchy"
-                                            onChange={(event) => {
-                                                setLevelFilter(event.target.value as VendorLevelFilter);
-                                                setPage(0);
-                                            }}
-                                        >
+                                        <Select value={levelFilter} label="Hierarchy" onChange={(e) => { setLevelFilter(e.target.value as VendorLevelFilter); setPage(0); }}>
                                             <MenuItem value="all">All Hierarchy</MenuItem>
-                                            {LEVEL_OPTIONS.map((option) => (
-                                                <MenuItem key={option.value} value={option.value}>
-                                                    {option.label}
-                                                </MenuItem>
-                                            ))}
+                                            {LEVEL_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
                                         </Select>
                                     </FormControl>
                                 </Grid>
-
                                 <Grid item xs={12} md={2}>
                                     <FormControl fullWidth size="small">
                                         <InputLabel>Status</InputLabel>
-                                        <Select
-                                            value={statusFilter}
-                                            label="Status"
-                                            onChange={(event) => {
-                                                setStatusFilter(event.target.value as VendorStatusFilter);
-                                                setPage(0);
-                                            }}
-                                        >
+                                        <Select value={statusFilter} label="Status" onChange={(e) => { setStatusFilter(e.target.value as VendorStatusFilter); setPage(0); }}>
                                             <MenuItem value="all">All Status</MenuItem>
-                                            {STATUS_OPTIONS.map((option) => (
-                                                <MenuItem key={option.value} value={option.value}>
-                                                    {option.label}
-                                                </MenuItem>
-                                            ))}
+                                            {STATUS_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
                                         </Select>
                                     </FormControl>
                                 </Grid>
-
                                 <Grid item xs={12} md={2}>
-                                    <TextField
-                                        fullWidth
-                                        size="small"
-                                        type="date"
-                                        label="Start Date"
-                                        value={startDate}
-                                        onChange={(event) => {
-                                            setStartDate(event.target.value);
-                                            setPage(0);
-                                        }}
-                                        InputLabelProps={{ shrink: true }}
-                                    />
+                                    <TextField fullWidth size="small" type="date" label="Start Date" value={startDate}
+                                        onChange={(e) => { setStartDate(e.target.value); setPage(0); }} InputLabelProps={{ shrink: true }} />
                                 </Grid>
-
                                 <Grid item xs={12} md={2}>
-                                    <TextField
-                                        fullWidth
-                                        size="small"
-                                        type="date"
-                                        label="End Date"
-                                        value={endDate}
-                                        onChange={(event) => {
-                                            setEndDate(event.target.value);
-                                            setPage(0);
-                                        }}
-                                        InputLabelProps={{ shrink: true }}
-                                    />
+                                    <TextField fullWidth size="small" type="date" label="End Date" value={endDate}
+                                        onChange={(e) => { setEndDate(e.target.value); setPage(0); }} InputLabelProps={{ shrink: true }} />
                                 </Grid>
-
-
                                 <Grid item xs={12}>
-                                     <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
+                                    <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
                                         <Chip label={`${stats.active} active`} color="success" variant="outlined" />
-                                         <Chip label={`${stats.vendors} vendors`} size="small" />
+                                        <Chip label={`${stats.vendors} vendors`} size="small" />
                                         <Chip label={`${stats.subVendors} sub-vendors`} size="small" />
                                         <Chip label={`${stats.agents} agents`} size="small" />
                                         <Chip label={`${stats.cashiers} cashiers`} size="small" />
                                         <Chip label={`${stats.pos} pos`} size="small" />
-                                         <Button size="small" onClick={resetFilters}>Reset Filters</Button>
-                                     </Stack>
-                                 </Grid>                               
-                                
+                                        <Button size="small" onClick={resetFilters}>Reset Filters</Button>
+                                    </Stack>
+                                </Grid>
                             </Grid>
                         </CardContent>
                     </Card>
@@ -1138,24 +819,15 @@ useEffect(() => {
                     <Paper variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
                         <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} mb={2}>
                             <Stack direction="row" spacing={1.5} alignItems="center">
-                                <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main' }}>
-                                    <Domain />
-                                </Avatar>
+                                <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main' }}><Domain /></Avatar>
                                 <Box>
                                     <Typography variant="h6">Vendors</Typography>
-                                    <Typography variant="body2" color="text.secondary">
-                                        Click any row to slide into the full  management details.
-                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">Click any row to slide into the full management details.</Typography>
                                 </Box>
                             </Stack>
                             {loading && <CircularProgress size={24} />}
-                            <Button
-                                variant="contained"
-                                color="primary"
-                                startIcon={<Business />}
-                                onClick={() => setCreateVendorOpen(true)}
-                            >
-                                Create Vendor
+                            <Button variant="contained" color="primary" startIcon={<Business />} onClick={() => setCreateVendorOpen(true)}>
+                                Create Children
                             </Button>
                         </Stack>
 
@@ -1170,7 +842,6 @@ useEffect(() => {
                                         <TableCell>Location</TableCell>
                                         <TableCell>Wallet</TableCell>
                                         <TableCell>Created</TableCell>
-                                        {/* <TableCell align="right">Children</TableCell> */}
                                         <TableCell align="right">Action</TableCell>
                                     </TableRow>
                                 </TableHead>
@@ -1180,41 +851,23 @@ useEffect(() => {
                                             <TableCell>
                                                 <Stack spacing={0.25}>
                                                     <Typography variant="subtitle2">{vendor.business_name}</Typography>
-                                                    <Typography variant="caption" color="text.secondary">
-                                                        Parent: {vendor.related_vendor?.business_name || 'None'}
-                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">Parent: {vendor.related_vendor?.business_name || 'None'}</Typography>
                                                 </Stack>
                                             </TableCell>
-                                            <TableCell>
-                                                <Chip label={levelLabel(vendor.hierachy)} size="small" color={levelColor(vendor.hierachy)} variant="outlined" />
-                                            </TableCell>
-                                            <TableCell>
-                                                <Chip label={vendor.account_status} size="small" color={statusColor(vendor.account_status)} />
-                                            </TableCell>
+                                            <TableCell><Chip label={levelLabel(vendor.hierachy)} size="small" color={levelColor(vendor.hierachy)} variant="outlined" /></TableCell>
+                                            <TableCell><Chip label={vendor.account_status} size="small" color={statusColor(vendor.account_status)} /></TableCell>
                                             <TableCell>
                                                 <Typography variant="body2">{vendor.email}</Typography>
-                                                <Typography variant="caption" color="text.secondary">
-                                                    {vendor.phone_number}
-                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary">{vendor.phone_number}</Typography>
                                             </TableCell>
                                             <TableCell>{getLocation(vendor)}</TableCell>
                                             <TableCell>
                                                 <Typography variant="subtitle2">{formatCurrency(getWalletBalance(vendor))}</Typography>
-                                                <Typography variant="caption" color="text.secondary">
-                                                    {getWalletTypeName(vendor)}
-                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary">{getWalletTypeName(vendor)}</Typography>
                                             </TableCell>
                                             <TableCell>{formatDate(vendor.created_at)}</TableCell>
-                                            {/* <TableCell align="right">{formatNumber(getDirectChildCount(vendor.id))}</TableCell> */}
                                             <TableCell align="right">
-                                                <Button
-                                                    size="small"
-                                                    endIcon={<ArrowForward />}
-                                                    onClick={(event) => {
-                                                        event.stopPropagation();
-                                                        handleSelectVendor(vendor);
-                                                    }}
-                                                >
+                                                <Button size="small" endIcon={<ArrowForward />} onClick={(e) => { e.stopPropagation(); handleSelectVendor(vendor); }}>
                                                     View
                                                 </Button>
                                             </TableCell>
@@ -1230,10 +883,7 @@ useEffect(() => {
                             page={page}
                             onPageChange={(_, nextPage) => setPage(nextPage)}
                             rowsPerPage={rowsPerPage}
-                            onRowsPerPageChange={(event) => {
-                                setRowsPerPage(Number(event.target.value));
-                                setPage(0);
-                            }}
+                            onRowsPerPageChange={(e) => { setRowsPerPage(Number(e.target.value)); setPage(0); }}
                             rowsPerPageOptions={[5, 8, 12, 20, 50]}
                         />
                     </Paper>
@@ -1243,9 +893,7 @@ useEffect(() => {
                     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} spacing={2} mb={2}>
                         <Box>
                             <Typography variant="h6">Selected Vendor Details</Typography>
-                            <Typography variant="body2" color="text.secondary">
-                                {selectedVendor.business_name}
-                            </Typography>
+                            <Typography variant="body2" color="text.secondary">{selectedVendor.business_name}</Typography>
                         </Box>
                         <Button variant="outlined" startIcon={<ArrowBack />} onClick={() => setSelectedVendor(null)}>
                             Back to Recent Vendors
@@ -1273,7 +921,6 @@ useEffect(() => {
                                 <Card sx={{ borderRadius: 1 }}>
                                     <CardContent>
                                         <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} mb={2}>
-                                            
                                             <Stack spacing={0.5}>
                                                 <Typography variant="h5">{selectedVendor.business_name}</Typography>
                                                 <Typography color="text.secondary">{selectedVendor.email}</Typography>
@@ -1284,19 +931,10 @@ useEffect(() => {
                                                 </Stack>
                                             </Stack>
                                             <Button
-                                                variant="contained"
-                                                color="error"
-                                                sx={{
-                                                height: 36,
-                                                textTransform: "none",
-                                                borderRadius: 2,
-                                                // bgcolor: "#1e3a8a",
-                                                "&:hover": { bgcolor: "#1e40af" },
-                                                }}
+                                                variant="contained" color="error"
+                                                sx={{ height: 36, textTransform: 'none', borderRadius: 2, '&:hover': { bgcolor: '#1e40af' } }}
                                                 startIcon={<Delete />}
-                                                onClick={() =>
-                                                    handleDeleteVendor(selectedVendor.id)
-                                                }
+                                                onClick={() => handleDeleteVendor(selectedVendor.id)}
                                             >
                                                 Delete Vendor
                                             </Button>
@@ -1312,7 +950,7 @@ useEffect(() => {
                                                 <Typography>{formatDate(selectedVendor.created_at)}</Typography>
                                             </Grid>
                                             <Grid item xs={12}>
-                                                <Button size="small" onClick={() => setShowFullDetails((prev) => !prev)}>
+                                                <Button size="small" onClick={() => setShowFullDetails((p) => !p)}>
                                                     {showFullDetails ? 'View Less' : 'View Full Details'}
                                                 </Button>
                                             </Grid>
@@ -1321,43 +959,21 @@ useEffect(() => {
                                         <Collapse in={showFullDetails} timeout={260}>
                                             <Divider sx={{ my: 2 }} />
                                             <Grid container spacing={2}>
-                                                <Grid item xs={12} md={6}>
-                                                    <Typography variant="body2" color="text.secondary">Vendor ID</Typography>
-                                                    <Typography>{selectedVendor.id}</Typography>
-                                                </Grid>
-                                                <Grid item xs={12} md={6}>
-                                                    <Typography variant="body2" color="text.secondary">Postal Code</Typography>
-                                                    <Typography>{selectedVendor.postal_code || 'Not provided'}</Typography>
-                                                </Grid>
-                                                <Grid item xs={12}>
-                                                    <Typography variant="body2" color="text.secondary">Address</Typography>
-                                                    <Typography>{selectedVendor.address || 'Not provided'}</Typography>
-                                                </Grid>
-                                                <Grid item xs={12} md={4}>
-                                                    <Typography variant="body2" color="text.secondary">City</Typography>
-                                                    <Typography>{selectedVendor.city || 'Not provided'}</Typography>
-                                                </Grid>
-                                                <Grid item xs={12} md={4}>
-                                                    <Typography variant="body2" color="text.secondary">State</Typography>
-                                                    <Typography>{selectedVendor.state || 'Not provided'}</Typography>
-                                                </Grid>
-                                                <Grid item xs={12} md={4}>
-                                                    <Typography variant="body2" color="text.secondary">Country</Typography>
-                                                    <Typography>{selectedVendor.country || 'Not provided'}</Typography>
-                                                </Grid>
+                                                <Grid item xs={12} md={6}><Typography variant="body2" color="text.secondary">Vendor ID</Typography><Typography>{selectedVendor.id}</Typography></Grid>
+                                                <Grid item xs={12} md={6}><Typography variant="body2" color="text.secondary">Postal Code</Typography><Typography>{selectedVendor.postal_code || 'Not provided'}</Typography></Grid>
+                                                <Grid item xs={12}><Typography variant="body2" color="text.secondary">Address</Typography><Typography>{selectedVendor.address || 'Not provided'}</Typography></Grid>
+                                                <Grid item xs={12} md={4}><Typography variant="body2" color="text.secondary">City</Typography><Typography>{selectedVendor.city || 'Not provided'}</Typography></Grid>
+                                                <Grid item xs={12} md={4}><Typography variant="body2" color="text.secondary">State</Typography><Typography>{selectedVendor.state || 'Not provided'}</Typography></Grid>
+                                                <Grid item xs={12} md={4}><Typography variant="body2" color="text.secondary">Country</Typography><Typography>{selectedVendor.country || 'Not provided'}</Typography></Grid>
                                                 <Grid item xs={12} md={6}>
                                                     <Typography variant="body2" color="text.secondary">Wallet Type</Typography>
                                                     <Typography>{getWalletTypeName(selectedVendor)}</Typography>
-                                                    <Typography variant="caption" color="text.secondary">
-                                                        {selectedVendor.wallet?.wallet_type?.description || ''}
-                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">{selectedVendor.wallet?.wallet_type?.description || ''}</Typography>
                                                 </Grid>
                                                 <Grid item xs={12} md={6}>
                                                     <Typography variant="body2" color="text.secondary">Related Vendor</Typography>
                                                     <Typography>{selectedVendor.related_vendor?.business_name || 'None'}</Typography>
-                                                    <Typography variant="caption" color="text.secondary">
-                                                        {selectedVendor.related_vendor?.email || ''}
-                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">{selectedVendor.related_vendor?.email || ''}</Typography>
                                                 </Grid>
                                             </Grid>
                                         </Collapse>
@@ -1371,63 +987,27 @@ useEffect(() => {
                                             {transactionLoading && <CircularProgress size={22} />}
                                         </Stack>
                                         <Grid container spacing={2} mb={2}>
-    <Grid item xs={12} md={4}>
-        <TextField
-            fullWidth
-            size="small"
-            placeholder="Search transaction"
-            value={transactionSearch}
-            onChange={(e) => {
-                setTransactionSearch(e.target.value);
-                setTransactionPage(0);
-            }}
-            InputProps={{
-                startAdornment: (
-                    <InputAdornment position="start">
-                        <Search fontSize="small" />
-                    </InputAdornment>
-                ),
-            }}
-        />
-    </Grid>
-
-    <Grid item xs={12} md={3}>
-        <TextField
-            fullWidth
-            size="small"
-            type="date"
-            label="Start Date"
-            value={transactionStartDate}
-            onChange={(e) => {
-                setTransactionStartDate(e.target.value);
-                setTransactionPage(0);
-            }}
-            InputLabelProps={{ shrink: true }}
-        />
-    </Grid>
-
-    <Grid item xs={12} md={3}>
-        <TextField
-            fullWidth
-            size="small"
-            type="date"
-            label="End Date"
-            value={transactionEndDate}
-            onChange={(e) => {
-                setTransactionEndDate(e.target.value);
-                setTransactionPage(0);
-            }}
-            InputLabelProps={{ shrink: true }}
-        />
-    </Grid>
-</Grid>
+                                            <Grid item xs={12} md={4}>
+                                                <TextField fullWidth size="small" placeholder="Search transaction" value={transactionSearch}
+                                                    onChange={(e) => { setTransactionSearch(e.target.value); setTransactionPage(0); }}
+                                                    InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
+                                                />
+                                            </Grid>
+                                            <Grid item xs={12} md={3}>
+                                                <TextField fullWidth size="small" type="date" label="Start Date" value={transactionStartDate}
+                                                    onChange={(e) => { setTransactionStartDate(e.target.value); setTransactionPage(0); }} InputLabelProps={{ shrink: true }} />
+                                            </Grid>
+                                            <Grid item xs={12} md={3}>
+                                                <TextField fullWidth size="small" type="date" label="End Date" value={transactionEndDate}
+                                                    onChange={(e) => { setTransactionEndDate(e.target.value); setTransactionPage(0); }} InputLabelProps={{ shrink: true }} />
+                                            </Grid>
+                                        </Grid>
                                         <Divider sx={{ mb: 2 }} />
                                         <Box sx={{ overflowX: 'auto' }}>
                                             <Table size="small">
                                                 <TableHead>
                                                     <TableRow>
                                                         <TableCell>Reference</TableCell>
-                                                        {/* <TableCell>Vendor</TableCell> */}
                                                         <TableCell>Status</TableCell>
                                                         <TableCell align="right">Amount</TableCell>
                                                         <TableCell>Date</TableCell>
@@ -1435,74 +1015,34 @@ useEffect(() => {
                                                 </TableHead>
                                                 <TableBody>
                                                     {selectedTransactions.map((transaction) => (
-                                                        <TableRow
-                                                    key={transaction.transaction_ref}
-                                                    hover
-                                                >
-                                                    <TableCell>
-                                                        {transaction.transaction_ref}
-                                                    </TableCell>
-
-                                                    {/* <TableCell>
-                                                        {transaction.vendor_name}
-                                                    </TableCell> */}
-
-                                                    <TableCell>
-                                                        <Chip
-                                                            label={transaction.status || 'success'}
-                                                            size="small"
-                                                            color={
-                                                                transaction.status === 'failed'
-                                                                    ? 'error'
-                                                                    : transaction.status === 'pending'
-                                                                    ? 'warning'
-                                                                    : 'success'
-                                                            }
-                                                        />
-                                                    </TableCell>
-
-                                                    <TableCell align="right">
-                                                        <Typography
-                                                            fontWeight={700}
-                                                            sx={{
-                                                                color:
-                                                                    transaction.transaction_type ===
-                                                                    'debit'
-                                                                        ? 'error.main'
-                                                                        : 'success.main',
-                                                            }}
-                                                        >
-                                                            {transaction.transaction_type ===
-                                                            'debit'
-                                                                ? '- '
-                                                                : '+ '}
-                                                            {formatCurrency(transaction.amount)}
-                                                        </Typography>
-                                                    </TableCell>
-
-                                                    <TableCell>
-                                                        {formatDateTime(transaction.timestamp)}
-                                                    </TableCell>
-                                                </TableRow>
+                                                        <TableRow key={transaction.transaction_ref} hover>
+                                                            <TableCell>{transaction.transaction_ref}</TableCell>
+                                                            <TableCell>
+                                                                <Chip
+                                                                    label={transaction.status || 'success'} size="small"
+                                                                    color={transaction.status === 'failed' ? 'error' : transaction.status === 'pending' ? 'warning' : 'success'}
+                                                                />
+                                                            </TableCell>
+                                                            <TableCell align="right">
+                                                                <Typography fontWeight={700} sx={{ color: transaction.transaction_type === 'debit' ? 'error.main' : 'success.main' }}>
+                                                                    {transaction.transaction_type === 'debit' ? '- ' : '+ '}
+                                                                    {formatCurrency(transaction.amount)}
+                                                                </Typography>
+                                                            </TableCell>
+                                                            <TableCell>{formatDateTime(transaction.timestamp)}</TableCell>
+                                                        </TableRow>
                                                     ))}
                                                 </TableBody>
                                             </Table>
                                             <TablePagination
-    component="div"
-    count={selectedTransactionCount}
-    page={transactionPage}
-    onPageChange={(_, newPage) => {
-        setTransactionPage(newPage);
-    }}
-    rowsPerPage={transactionRowsPerPage}
-    onRowsPerPageChange={(e) => {
-        setTransactionRowsPerPage(
-            Number(e.target.value)
-        );
-        setTransactionPage(0);
-    }}
-    rowsPerPageOptions={[5, 10, 20]}
-/>
+                                                component="div"
+                                                count={selectedTransactionCount}
+                                                page={transactionPage}
+                                                onPageChange={(_, newPage) => setTransactionPage(newPage)}
+                                                rowsPerPage={transactionRowsPerPage}
+                                                onRowsPerPageChange={(e) => { setTransactionRowsPerPage(Number(e.target.value)); setTransactionPage(0); }}
+                                                rowsPerPageOptions={[5, 10, 20]}
+                                            />
                                         </Box>
                                     </CardContent>
                                 </Card>
@@ -1510,240 +1050,180 @@ useEffect(() => {
                         </Grid>
 
                         <Grid item xs={12} md={5}>
-                            <Stack spacing={3}>
-                                <Card sx={{ borderRadius: 1 }}>
-                                    <CardContent>
-                                        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-                                            <Typography variant="h6">Hierarchy Under This Vendor</Typography>
-                                            {detailLoading && <CircularProgress size={22} />}
-                                        </Stack>
-                                        <Paper variant="outlined" sx={{ maxHeight: 340, overflow: 'auto', borderRadius: 1 }}>
-                                            {selectedVendorTree.length ? (
-                                                renderVendorTree(selectedVendorTree)
-                                            ) : (
-                                                <Box p={2}>
-                                                    <Typography color="text.secondary">No child vendors found.</Typography>
-                                                </Box>
-                                            )}
-                                        </Paper>
-                                    </CardContent>
-                                </Card>
-
-                                {/* <Card sx={{ borderRadius: 1 }}>
-                                    <CardContent>
-                                        <Typography variant="h6" mb={2}>Wallet Summary</Typography>
-                                        <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'primary.light', color: 'primary.contrastText', borderRadius: 1 }}>
-                                            <Typography variant="caption">Total Balance</Typography>
-                                            <Typography variant="h5" fontWeight={700}>{formatCurrency(getWalletBalance(selectedVendor))}</Typography>
-                                        </Paper>
-                                        <Stack spacing={1}>
-                                            <Stack direction="row" justifyContent="space-between" spacing={2}>
-                                                <Typography variant="body2" color="text.secondary">Wallet Type</Typography>
-                                                <Typography variant="subtitle2">{getWalletTypeName(selectedVendor)}</Typography>
-                                            </Stack>
-                                            <Stack direction="row" justifyContent="space-between" spacing={2}>
-                                                <Typography variant="body2" color="text.secondary">Account Status</Typography>
-                                                <Chip label={selectedVendor.account_status} size="small" color={statusColor(selectedVendor.account_status)} />
-                                            </Stack>
-                                            <Stack direction="row" justifyContent="space-between" spacing={2}>
-                                                <Typography variant="body2" color="text.secondary">Total Transactions</Typography>
-                                                <Typography variant="subtitle2">{formatNumber(selectedTransactionCount)}</Typography>
-                                            </Stack>
-                                        </Stack>
-                                    </CardContent>
-                                </Card> //*/}
-                            </Stack>
+                            <Card sx={{ borderRadius: 1 }}>
+                                <CardContent>
+                                    <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                                        <Typography variant="h6">Hierarchy Under This Vendor</Typography>
+                                        {detailLoading && <CircularProgress size={22} />}
+                                    </Stack>
+                                    <Paper variant="outlined" sx={{ maxHeight: 340, overflow: 'auto', borderRadius: 1 }}>
+                                        {selectedVendorTree.length ? renderVendorTree(selectedVendorTree) : (
+                                            <Box p={2}><Typography color="text.secondary">No child vendors found.</Typography></Box>
+                                        )}
+                                    </Paper>
+                                </CardContent>
+                            </Card>
                         </Grid>
                     </Grid>
                 </Box>
             )}
 
             <Snackbar open={Boolean(success)} autoHideDuration={3000} onClose={() => setSuccess(null)} anchorOrigin={{ vertical: 'top', horizontal: 'right' }}>
-                <Paper sx={{ p: 1.5, bgcolor: 'success.main', color: 'success.contrastText' }}>
-                    {success}
-                </Paper>
+                <Paper sx={{ p: 1.5, bgcolor: 'success.main', color: 'success.contrastText' }}>{success}</Paper>
             </Snackbar>
 
-            <Dialog
-    open={createVendorOpen}
-    onClose={() => setCreateVendorOpen(false)}
-    maxWidth="md"
-    fullWidth
->
-    <DialogTitle>
-        Create Vendor
-    </DialogTitle>
-    {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-           {error}
-        </Alert>
-    )}
-    <DialogContent>
-        <Grid container spacing={2} mt={1}>
-            <Grid item xs={12}>
-                <TextField
-                    fullWidth
-                    label="Business Name"
-                    value={vendorForm.business_name}
-                    onChange={(e) =>
-                        setVendorForm({
-                            ...vendorForm,
-                            business_name:
-                                e.target.value,
-                        })
-                    }
-                />
-            </Grid>
+            {/* ── Create Children Dialog ─────────────────────────────────────── */}
+            <Dialog open={createVendorOpen} onClose={handleCloseDialog} maxWidth="md" fullWidth>
+                <DialogTitle>Create Children</DialogTitle>
 
-            <Grid item xs={12} md={6}>
-                <TextField
-                    fullWidth
-                    label="Email"
-                    value={vendorForm.email}
-                    onChange={(e) =>
-                        setVendorForm({
-                            ...vendorForm,
-                            email: e.target.value,
-                        })
-                    }
-                />
-            </Grid>
+                <DialogContent>
+                    {/* Backend error banner — shows the actual API response message */}
+                    {dialogError && (
+                        <Alert severity="error" sx={{ mb: 2, mt: 1 }} onClose={() => setDialogError(null)}>
+                            {dialogError}
+                        </Alert>
+                    )}
 
-            <Grid item xs={12} md={6}>
-                <TextField
-                    fullWidth
-                    label="Phone Number"
-                    value={vendorForm.phone_number}
-                    onChange={(e) =>
-                        setVendorForm({
-                            ...vendorForm,
-                            phone_number:
-                                e.target.value,
-                        })
-                    }
-                />
-            </Grid>
+                    <Grid container spacing={2} mt={0.5}>
+                        {/* Business Name */}
+                        <Grid item xs={12}>
+                            <TextField
+                                fullWidth required
+                                label="Business Name"
+                                value={vendorForm.business_name}
+                                error={!!fieldErrors.business_name}
+                                helperText={fieldErrors.business_name}
+                                onChange={(e) => {
+                                    setVendorForm({ ...vendorForm, business_name: e.target.value });
+                                    clearFieldError('business_name');
+                                }}
+                            />
+                        </Grid>
 
-            <Grid item xs={12}>
-                <TextField
-                    fullWidth
-                    label="Address"
-                    value={vendorForm.address}
-                    onChange={(e) =>
-                        setVendorForm({
-                            ...vendorForm,
-                            address: e.target.value,
-                        })
-                    }
-                />
-            </Grid>
+                        {/* Email */}
+                        <Grid item xs={12} md={6}>
+                            <TextField
+                                fullWidth required
+                                label="Email"
+                                type="email"
+                                value={vendorForm.email}
+                                error={!!fieldErrors.email}
+                                helperText={fieldErrors.email}
+                                onChange={(e) => {
+                                    setVendorForm({ ...vendorForm, email: e.target.value });
+                                    clearFieldError('email');
+                                }}
+                            />
+                        </Grid>
 
-            <Grid item xs={12} md={4}>
-                <TextField
-                    fullWidth
-                    label="City"
-                    value={vendorForm.city}
-                    onChange={(e) =>
-                        setVendorForm({
-                            ...vendorForm,
-                            city: e.target.value,
-                        })
-                    }
-                />
-            </Grid>
+                        {/* Phone */}
+                        <Grid item xs={12} md={6}>
+                            <TextField
+                                fullWidth required
+                                label="Phone Number"
+                                value={vendorForm.phone_number}
+                                error={!!fieldErrors.phone_number}
+                                helperText={fieldErrors.phone_number}
+                                onChange={(e) => {
+                                    setVendorForm({ ...vendorForm, phone_number: e.target.value });
+                                    clearFieldError('phone_number');
+                                }}
+                            />
+                        </Grid>
 
-            <Grid item xs={12} md={4}>
-                <TextField
-                    fullWidth
-                    label="State"
-                    value={vendorForm.state}
-                    onChange={(e) =>
-                        setVendorForm({
-                            ...vendorForm,
-                            state: e.target.value,
-                        })
-                    }
-                />
-            </Grid>
+                        {/* Address */}
+                        <Grid item xs={12}>
+                            <TextField
+                                fullWidth required
+                                label="Address"
+                                value={vendorForm.address}
+                                error={!!fieldErrors.address}
+                                helperText={fieldErrors.address}
+                                onChange={(e) => {
+                                    setVendorForm({ ...vendorForm, address: e.target.value });
+                                    clearFieldError('address');
+                                }}
+                            />
+                        </Grid>
 
-            <Grid item xs={12} md={4}>
-                <TextField
-                    fullWidth
-                    label="Postal Code"
-                    value={vendorForm.postal_code}
-                    onChange={(e) =>
-                        setVendorForm({
-                            ...vendorForm,
-                            postal_code:
-                                e.target.value,
-                        })
-                    }
-                />
-            </Grid>
+                        {/* City */}
+                        <Grid item xs={12} md={4}>
+                            <TextField
+                                fullWidth required
+                                label="City"
+                                value={vendorForm.city}
+                                error={!!fieldErrors.city}
+                                helperText={fieldErrors.city}
+                                onChange={(e) => {
+                                    setVendorForm({ ...vendorForm, city: e.target.value });
+                                    clearFieldError('city');
+                                }}
+                            />
+                        </Grid>
 
-            <Grid item xs={12}>
-                <FormControl fullWidth>
-                    <InputLabel>
-                        Hierarchy
-                    </InputLabel>
+                        {/* State */}
+                        <Grid item xs={12} md={4}>
+                            <TextField
+                                fullWidth required
+                                label="State"
+                                value={vendorForm.state}
+                                error={!!fieldErrors.state}
+                                helperText={fieldErrors.state}
+                                onChange={(e) => {
+                                    setVendorForm({ ...vendorForm, state: e.target.value });
+                                    clearFieldError('state');
+                                }}
+                            />
+                        </Grid>
 
-                    <Select
-                        value={vendorForm.hierachy}
-                        label="Hierarchy"
-                        onChange={(e) =>
-                            setVendorForm({
-                                ...vendorForm,
-                                hierachy:
-                                    e.target.value,
-                            })
-                        }
-                    >
-                        {getAllowedHierarchies().map(
-                            (level) => (
-                                <MenuItem
-                                    key={level}
-                                    value={level}
+                        {/* Postal Code */}
+                        <Grid item xs={12} md={4}>
+                            <TextField
+                                fullWidth required
+                                label="Postal Code"
+                                value={vendorForm.postal_code}
+                                error={!!fieldErrors.postal_code}
+                                helperText={fieldErrors.postal_code}
+                                onChange={(e) => {
+                                    setVendorForm({ ...vendorForm, postal_code: e.target.value });
+                                    clearFieldError('postal_code');
+                                }}
+                            />
+                        </Grid>
+
+                        {/* Hierarchy */}
+                        <Grid item xs={12}>
+                            <FormControl fullWidth required error={!!fieldErrors.hierachy}>
+                                <InputLabel>Hierarchy</InputLabel>
+                                <Select
+                                    value={vendorForm.hierachy}
+                                    label="Hierarchy"
+                                    onChange={(e) => {
+                                        setVendorForm({ ...vendorForm, hierachy: e.target.value });
+                                        clearFieldError('hierachy');
+                                    }}
                                 >
-                                    {level
-                                        .replace(
-                                            "_",
-                                            " "
-                                        )
-                                        .toUpperCase()}
-                                </MenuItem>
-                            )
-                        )}
-                    </Select>
-                </FormControl>
-            </Grid>
-        </Grid>
-    </DialogContent>
+                                    {getAllowedHierarchies().map((level) => (
+                                        <MenuItem key={level} value={level}>
+                                            {level.replace('_', ' ').toUpperCase()}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                                {fieldErrors.hierachy && (
+                                    <FormHelperText>{fieldErrors.hierachy}</FormHelperText>
+                                )}
+                            </FormControl>
+                        </Grid>
+                    </Grid>
+                </DialogContent>
 
-    <DialogActions>
-        <Button
-            onClick={() =>
-                setCreateVendorOpen(false)
-            }
-        >
-            Cancel
-        </Button>
-
-        <Button
-            variant="contained"
-            onClick={handleCreateVendor}
-            disabled={creatingVendor}
-        >
-            {creatingVendor ? (
-                <CircularProgress
-                    size={20}
-                    color="inherit"
-                />
-            ) : (
-                "Create Vendor"
-            )}
-        </Button>
-    </DialogActions>
-</Dialog>
+                <DialogActions>
+                    <Button onClick={handleCloseDialog}>Cancel</Button>
+                    <Button variant="contained" onClick={handleCreateVendor} disabled={creatingVendor}>
+                        {creatingVendor ? <CircularProgress size={20} color="inherit" /> : 'Create Children'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 };

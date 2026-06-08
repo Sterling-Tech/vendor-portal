@@ -961,11 +961,11 @@ const Dashboard: React.FC = () => {
     const quickActions = useMemo(
         () => [
             { id: 'manage-orgs', title: 'Manage Organisations', description: 'Create and manage vendor organisations', icon: <Business />, path: '/tenants/vendors', color: 'primary.main' },
-            { id: 'wallet-ops', title: 'Wallet Operations', description: 'Balances, transfers, and settlement wallets', icon: <AccountBalance />, path: '/tenants/wallets', color: 'success.main' },
-            { id: 'prepaid', title: 'Prepaid Services', description: 'Airtime, data, bills, and utilities', icon: <Speed />, path: '/prepaid', color: 'warning.main' },
+            { id: 'wallet-ops', title: 'Wallet Operations', description: 'Balances, transfers, and settlement wallets', icon: <AccountBalance />, path: '/transactions', color: 'success.main' },
+            // { id: 'prepaid', title: 'Prepaid Services', description: 'Airtime, data, bills, and utilities', icon: <Speed />, path: '/prepaid', color: 'warning.main' },
             { id: 'api-keys', title: 'API Keys', description: 'Keys, webhooks, and access controls', icon: <Key />, path: '/settings', color: 'info.main' },
-            { id: 'settings', title: 'Settings', description: 'Tenant profile and platform settings', icon: <Settings />, path: '/settings', color: 'secondary.main' },
-            { id: 'create', title: 'Create New', description: 'Add wallet, user, tenant, or organisation', icon: <Business />, path: '/tenants/vendors', color: 'error.main' },
+            { id: 'settings', title: 'Settings', description: 'Vendor profile and platform settings', icon: <Settings />, path: '/settings', color: 'secondary.main' },
+            { id: 'create', title: 'Create New', description: 'Vendor, user', icon: <Business />, path: '/tenants/vendors', color: 'error.main' },
         ],
         []
     );
