@@ -1,6 +1,6 @@
 import { getApiKeyCredentials } from '../utils/apiKeyStorage';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8001/api/v1';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://188.166.161.13:8061';
 
 export interface ApiResponse<T> {
     data: T;

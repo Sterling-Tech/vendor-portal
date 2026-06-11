@@ -1,1022 +1,1204 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-    Box,
-    Typography,
-    Card,
-    CardContent,
-    Grid,
-    TextField,
-    Button,
-    Switch,
-    FormControlLabel,
-    Divider,
-    Alert,
-    Snackbar,
-    Tabs,
-    Tab,
-    List,
-    ListItem,
-    ListItemText,
-    Chip,
-    Stack,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    IconButton,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    MenuItem,
-    Select,
-    FormControl,
-    InputLabel,
-    CircularProgress,
-    Tooltip,
-    Paper,
-} from '@mui/material';
-import {
-    Security as SecurityIcon,
-    Notifications as NotificationsIcon,
-    AccountCircle as AccountIcon,
-    Save as SaveIcon,
-    Settings as SettingsIcon,
-    Add as AddIcon,
-    Delete as DeleteIcon,
-    Visibility as VisibilityIcon,
-    VisibilityOff as VisibilityOffIcon,
-    Refresh as RefreshIcon,
-    Cancel as CancelIcon,
-    VpnKey as KeyIcon,
-} from '@mui/icons-material';
-import { useAppSelector } from '../../store/store';
-import { useVendorHierarchy } from '../../contexts/VendorContext';
-import { useApiKeys } from '../../hooks/useApiKeys';
-import { tenantService, TenantConfiguration } from '../../services/tenantService';
+import React, { useState, useEffect } from "react";
 
-// Date formatting utility function
-const formatDate = (dateString: string | null, formatType: 'short' | 'full' = 'short'): string => {
-    if (!dateString) return 'Never';
-    try {
-        const date = new Date(dateString);
-        if (formatType === 'full') {
-            return date.toLocaleString('en-US', {
-                month: 'short',
-                day: '2-digit',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-        }
-        return date.toLocaleDateString('en-US', {
-            month: 'short',
-            day: '2-digit',
-            year: 'numeric'
-        });
-    } catch {
-        return 'Invalid Date';
-    }
-};
+import {
+  Box,
+  Typography,
+  Card,
+  CardContent,
+  Grid,
+  TextField,
+  Button,
+  Switch,
+  FormControlLabel,
+  Divider,
+  Alert,
+  Snackbar,
+  Tabs,
+  Tab,
+  List,
+  ListItem,
+  ListItemText,
+  MenuItem,
+  Chip,
+  Stack,
+  Paper,
+  IconButton,
+  InputAdornment,
+} from "@mui/material";
 
-const API_BASE_URL = 'http://localhost:8001/api/v1';
+import {
+  Security as SecurityIcon,
+  Notifications as NotificationsIcon,
+  AccountCircle as AccountIcon,
+  Save as SaveIcon,
+  SettingsApplications as ConfigIcon,
+  Refresh as RefreshIcon,
+  ContentCopy as CopyIcon,
+  Key as KeyIcon,
+  Language as DomainIcon,
+  Business as BusinessIcon,
+  Public as PublicIcon,
+} from "@mui/icons-material";
+
+import { useAppSelector } from "../../store/store";
+import CreateNewAdmin from "./CreateNewAdmin";
+import AllAdmin from "./AllAdmin";
+import AssignPermission from "./AssignPermission";
+
+//const API_BASE_URL = "http://188.166.161.13:8001/api/v1";
 
 const Settings: React.FC = () => {
-    const { user } = useAppSelector((state) => state.auth);
-    const { tenantId, selectedOrgId } = useVendorHierarchy();
-    const [loading, setLoading] = useState(false);
-    const [success, setSuccess] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState(0);
+  const { user } = useAppSelector((state) => state.auth);
 
-    // Account settings
-    const [accountForm, setAccountForm] = useState({
-        first_name: '',
-        last_name: '',
-        email: '',
-        phone: '',
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState(0);
+
+  // ================= ACCOUNT =================
+  const [accountForm, setAccountForm] = useState({
+    first_name: "",
+    last_name: "",
+    email: "",
+    phone: "",
+  });
+
+  // ================= SECURITY =================
+  const [securityForm, setSecurityForm] = useState({
+    current_password: "",
+    new_password: "",
+    confirm_password: "",
+    two_factor_enabled: false,
+  });
+
+  // ================= NOTIFICATIONS =================
+  const [notificationSettings, setNotificationSettings] = useState({
+    email_notifications: true,
+    sms_notifications: false,
+    push_notifications: true,
+  });
+
+  // ================= CONFIGURATION =================
+  const [configurationForm, setConfigurationForm] = useState({
+    organization_name: "",
+    organization_id: "ORG-20394-AB",
+    organization_type: "vendor",
+
+    api_key: "pk_live_x82jshh2728sjj",
+    api_secret: "sk_live_8sjjsjjs929299",
+
+    api_scope: "full_access",
+    rate_limit: "1000",
+
+    domain: "",
+    ip_address: "",
+
+    expiration_date: "",
+    data_limit: "10GB",
+
+    commission_rate: "5",
+
+    saas_enabled: true,
+    billing_cycle: "monthly",
+
+    webhook_url: "",
+  });
+
+  useEffect(() => {
+    if (user) {
+      setAccountForm({
+        first_name: user.first_name || "",
+        last_name: user.last_name || "",
+        email: user.email || "",
+        phone: user.phone || "",
+      });
+    }
+  }, [user]);
+
+  // ================= ACCOUNT SAVE =================
+  const handleSaveAccount = async () => {
+    setLoading(true);
+
+    // try {
+    //   const token = localStorage.getItem("token");
+
+    //   const response = await fetch(
+    //     `${API_BASE_URL}/users/${user?.id}/`,
+    //     {
+    //       method: "PATCH",
+    //       headers: {
+    //         Authorization: `Bearer ${token}`,
+    //         "Content-Type": "application/json",
+    //       },
+    //       body: JSON.stringify(accountForm),
+    //     }
+    //   );
+
+    //   if (response.ok) {
+    //     setSuccess("Account settings updated successfully!");
+    //   }
+    // } catch (err) {
+    //   console.error(err);
+    // } finally {
+    //   setLoading(false);
+    // }
+  };
+
+  // ================= SECURITY SAVE =================
+  const handleSaveSecurity = async () => {
+    setLoading(true);
+
+    // try {
+    //   const token = localStorage.getItem("token");
+
+    //   const response = await fetch(
+    //     `${API_BASE_URL}/auth/change-password/`,
+    //     {
+    //       method: "POST",
+    //       headers: {
+    //         Authorization: `Bearer ${token}`,
+    //         "Content-Type": "application/json",
+    //       },
+    //       body: JSON.stringify({
+    //         current_password: securityForm.current_password,
+    //         new_password: securityForm.new_password,
+    //       }),
+    //     }
+    //   );
+
+    //   if (response.ok) {
+    //     setSuccess("Password changed successfully!");
+
+    //     setSecurityForm({
+    //       current_password: "",
+    //       new_password: "",
+    //       confirm_password: "",
+    //       two_factor_enabled: securityForm.two_factor_enabled,
+    //     });
+    //   }
+    // } catch (err) {
+    //   console.error(err);
+    // } finally {
+    //   setLoading(false);
+    // }
+  };
+
+  // ================= CONFIGURATION =================
+  const generateApiKey = () => {
+    const random = Math.random().toString(36).substring(2, 18);
+
+    setConfigurationForm({
+      ...configurationForm,
+      api_key: `pk_live_${random}`,
     });
 
-    // Security settings
-    const [securityForm, setSecurityForm] = useState({
-        current_password: '',
-        new_password: '',
-        confirm_password: '',
-        two_factor_enabled: false,
+    setSuccess("API Key Generated Successfully");
+  };
+
+  const rotateApiKey = () => {
+    const random = Math.random().toString(36).substring(2, 18);
+
+    setConfigurationForm({
+      ...configurationForm,
+      api_secret: `sk_live_${random}`,
     });
 
-    // Notification settings
-    const [notificationSettings, setNotificationSettings] = useState({
-        email_notifications: true,
-        sms_notifications: false,
-        push_notifications: true,
-    });
+    setSuccess("API Secret Rotated Successfully");
+  };
 
-    // Configuration settings
-    const [configuration, setConfiguration] = useState<TenantConfiguration | null>(null);
-    const [configLoading, setConfigLoading] = useState(false);
-    const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
-    const [newApiKeyScopes, setNewApiKeyScopes] = useState<string[]>([]);
-    const [newApiKeyExpiresAt, setNewApiKeyExpiresAt] = useState<string>('');
-    const [showApiKeySecret, setShowApiKeySecret] = useState<Record<string, boolean>>({});
-    const [auditDialogOpen, setAuditDialogOpen] = useState(false);
-    const [selectedApiKeyForAudit, setSelectedApiKeyForAudit] = useState<string | null>(null);
+  const handleSaveConfiguration = async () => {
+    try {
+      setLoading(true);
 
-    // API Keys hooks - for tenant org
-    const {
-        keys: orgApiKeys,
-        loading: orgKeysLoading,
-        createKey: createOrgKey,
-        rotateKey: rotateOrgKey,
-        revokeKey: revokeOrgKey,
-        removeKey: removeOrgKey,
-        lastIssuedSecret,
-        setLastIssuedSecret,
-        auditEntries,
-        loadAudit,
-    } = useApiKeys('vendor_org', selectedOrgId);
+      console.log(configurationForm);
 
-    // API Keys hooks - for user
-    const {
-        keys: userApiKeys,
-        loading: userKeysLoading,
-        createKey: createUserKey,
-        rotateKey: rotateUserKey,
-        revokeKey: revokeUserKey,
-        removeKey: removeUserKey,
-    } = useApiKeys('user', user?.id || null);
+      setTimeout(() => {
+        setLoading(false);
+        setSuccess("Configuration Saved Successfully");
+      }, 1200);
+    } catch (err) {
+      console.error(err);
+      setLoading(false);
+    }
+  };
 
-    // Configuration form state
-    const [configForm, setConfigForm] = useState({
-        enable_advanced_analytics: false,
-        enable_api_access: true,
-        enable_webhooks: false,
-        enable_audit_logs: true,
-        max_users: 10,
-        max_storage_mb: 1000,
-        api_rate_limit: 10000,
-        billing_cycle: 'monthly',
-    });
+  // ================= SUPER ADMIN =================
+  const isSuperAdmin =
+    user?.role === "super_admin"
+    //  ||
+    // user?.is_superuser === true;
 
-    // Available scopes for API keys
-    const availableScopes = [
-        { value: 'wallet:read', label: 'Wallet Read' },
-        { value: 'wallet:write', label: 'Wallet Write' },
-        { value: 'wallet:transfer', label: 'Wallet Transfer' },
-        { value: 'transaction:read', label: 'Transaction Read' },
-        { value: 'transaction:write', label: 'Transaction Write' },
-        { value: 'report:read', label: 'Report Read' },
-        { value: 'vendor:read', label: 'Vendor Read' },
-        { value: 'vendor:write', label: 'Vendor Write' },
-    ];
+  return (
+    <Box
+      p={3}
+      sx={{
+        background: "#F8FAFC",
+        minHeight: "100vh",
+      }}
+    >
+      {/* HEADER */}
+      <Box mb={4}>
+        <Typography
+          variant="h4"
+          fontWeight={800}
+        >
+          System Settings
+        </Typography>
 
-    // Available modules/licenses
-    const availableModules = [
-        { id: 'wallets', name: 'Wallets', enabled: true },
-        { id: 'transactions', name: 'Transactions', enabled: true },
-        { id: 'analytics', name: 'Advanced Analytics', enabled: false },
-        { id: 'webhooks', name: 'Webhooks', enabled: false },
-        { id: 'api_access', name: 'API Access', enabled: true },
-        { id: 'audit_logs', name: 'Audit Logs', enabled: true },
-    ];
+        <Typography color="#64748B" mt={1}>
+          Manage account, security,
+          notifications and organization
+          configurations
+        </Typography>
+      </Box>
 
-    useEffect(() => {
-        if (user) {
-            setAccountForm({
-                first_name: user.first_name || '',
-                last_name: user.last_name || '',
-                email: user.email || '',
-                phone: user.phone || '',
-            });
-        }
-    }, [user]);
+      {/* SUCCESS ALERT */}
+      <Snackbar
+        open={!!success}
+        autoHideDuration={5000}
+        onClose={() => setSuccess(null)}
+        anchorOrigin={{
+          vertical: "top",
+          horizontal: "right",
+        }}
+      >
+        <Alert
+          severity="success"
+          onClose={() => setSuccess(null)}
+          sx={{ width: "100%" }}
+        >
+          {success}
+        </Alert>
+      </Snackbar>
 
-    // Load tenant configuration
-    const loadConfiguration = useCallback(async () => {
-        if (!tenantId) return;
-        setConfigLoading(true);
-        try {
-            const config = await tenantService.getTenantConfiguration(tenantId);
-            if (config) {
-                setConfiguration(config);
-                setConfigForm({
-                    enable_advanced_analytics: config.enable_advanced_analytics,
-                    enable_api_access: config.enable_api_access,
-                    enable_webhooks: config.enable_webhooks,
-                    enable_audit_logs: config.enable_audit_logs,
-                    max_users: config.max_users,
-                    max_storage_mb: config.max_storage_mb,
-                    api_rate_limit: config.api_rate_limit,
-                    billing_cycle: config.billing_cycle,
-                });
+      {/* MAIN CARD */}
+      <Card
+        sx={{
+          borderRadius: 5,
+          overflow: "hidden",
+          boxShadow:
+            "0 10px 40px rgba(15,23,42,0.06)",
+        }}
+      >
+        {/* TABS */}
+        <Box
+          sx={{
+            borderBottom: "1px solid #E2E8F0",
+            px: 2,
+            bgcolor: "#fff",
+          }}
+        >
+          <Tabs
+            value={activeTab}
+            onChange={(_, value) =>
+              setActiveTab(value)
             }
-        } catch (err) {
-            console.error('Failed to load configuration:', err);
-        } finally {
-            setConfigLoading(false);
-        }
-    }, [tenantId]);
+            variant="scrollable"
+            scrollButtons="auto"
+          >
+            <Tab
+              icon={<AccountIcon />}
+              iconPosition="start"
+              label="Account"
+            />
 
-    useEffect(() => {
-        if (activeTab === 3) {
-            loadConfiguration();
-        }
-    }, [activeTab, loadConfiguration]);
+            <Tab
+              icon={<SecurityIcon />}
+              iconPosition="start"
+              label="Security"
+            />
 
-    const handleSaveAccount = async () => {
-        setLoading(true);
-        try {
-            const token = localStorage.getItem('token');
-            const response = await fetch(`${API_BASE_URL}/users/${user?.id}/`, {
-                method: 'PATCH',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(accountForm),
-            });
+            {/* <Tab
+              icon={<NotificationsIcon />}
+              iconPosition="start"
+              label="Notifications"
+            />
 
-            if (response.ok) {
-                setSuccess('Account settings updated successfully!');
-            }
-        } catch (err) {
-            console.error('Error updating account:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
+              <Tab
+                icon={<ConfigIcon />}
+                iconPosition="start"
+                label="Configuration"
+              /> */}
+              <Tab
+                icon={<ConfigIcon />}
+                iconPosition="start"
+                label="Admin Management"
+              />
+              <Tab
+                icon={<ConfigIcon />}
+                iconPosition="start"
+                label="Admin List"
+              />
+              <Tab
+                icon={<ConfigIcon />}
+                iconPosition="start"
+                label="Assign Permission"
+              />
+            {/* )} */}
+          </Tabs>
+        </Box>
 
-    const handleSaveSecurity = async () => {
-        setLoading(true);
-        try {
-            const token = localStorage.getItem('token');
-            const response = await fetch(`${API_BASE_URL}/auth/change-password/`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    current_password: securityForm.current_password,
-                    new_password: securityForm.new_password,
-                }),
-            });
-
-            if (response.ok) {
-                setSuccess('Password changed successfully!');
-                setSecurityForm({
-                    current_password: '',
-                    new_password: '',
-                    confirm_password: '',
-                    two_factor_enabled: securityForm.two_factor_enabled,
-                });
-            }
-        } catch (err) {
-            console.error('Error changing password:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleSaveConfiguration = async () => {
-        if (!configuration) return;
-        setConfigLoading(true);
-        try {
-            await tenantService.updateTenantConfiguration(configuration.id, configForm);
-            setSuccess('Configuration updated successfully!');
-            await loadConfiguration();
-        } catch (err) {
-            console.error('Failed to update configuration:', err);
-        } finally {
-            setConfigLoading(false);
-        }
-    };
-
-    const handleCreateApiKey = async (forOrg: boolean = false) => {
-        try {
-            if (forOrg && selectedOrgId) {
-                await createOrgKey(newApiKeyScopes.length ? newApiKeyScopes : undefined, newApiKeyExpiresAt || null);
-            } else if (user?.id) {
-                await createUserKey(newApiKeyScopes.length ? newApiKeyScopes : undefined, newApiKeyExpiresAt || null);
-            }
-            setApiKeyDialogOpen(false);
-            setNewApiKeyScopes([]);
-            setNewApiKeyExpiresAt('');
-            setSuccess('API key created successfully!');
-        } catch (err: any) {
-            console.error('Failed to create API key:', err);
-        }
-    };
-
-    const handleViewAudit = async (keyId: string) => {
-        setSelectedApiKeyForAudit(keyId);
-        await loadAudit(keyId);
-        setAuditDialogOpen(true);
-    };
-
-    const toggleModuleLicense = async (moduleId: string, enabled: boolean) => {
-        if (!configuration) return;
-        const updatedFeatures = enabled
-            ? [...(configuration.features || []), moduleId].filter((f, i, arr) => arr.indexOf(f) === i)
-            : (configuration.features || []).filter((f) => f !== moduleId);
-
-        try {
-            await tenantService.updateTenantConfiguration(configuration.id, {
-                features: updatedFeatures,
-            });
-            setSuccess(`Module ${enabled ? 'enabled' : 'disabled'} successfully!`);
-            await loadConfiguration();
-        } catch (err) {
-            console.error('Failed to update module license:', err);
-        }
-    };
-
-    return (
-        <Box p={3}>
-            <Typography variant="h4" component="h1" gutterBottom>
-                Settings
+        {/* ================= ACCOUNT TAB ================= */}
+        {activeTab === 0 && (
+          <CardContent sx={{ p: 4 }}>
+            <Typography
+              variant="h6"
+              fontWeight={700}
+              mb={4}
+            >
+              Profile Information
             </Typography>
 
-            <Snackbar
-                open={!!success}
-                autoHideDuration={6000}
-                onClose={() => setSuccess(null)}
-                anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-            >
-                <Alert onClose={() => setSuccess(null)} severity="success" sx={{ width: '100%' }}>
-                    {success}
-                </Alert>
-            </Snackbar>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="First Name"
+                  value={accountForm.first_name}
+                  onChange={(e) =>
+                    setAccountForm({
+                      ...accountForm,
+                      first_name:
+                        e.target.value,
+                    })
+                  }
+                />
+              </Grid>
 
-            <Card sx={{ mt: 3 }}>
-                <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                    <Tabs value={activeTab} onChange={(_, newValue) => setActiveTab(newValue)}>
-                        <Tab icon={<AccountIcon />} label="Account" iconPosition="start" />
-                        <Tab icon={<SecurityIcon />} label="Security" iconPosition="start" />
-                        <Tab icon={<NotificationsIcon />} label="Notifications" iconPosition="start" />
-                        <Tab icon={<SettingsIcon />} label="Configuration" iconPosition="start" />
-                    </Tabs>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Last Name"
+                  value={accountForm.last_name}
+                  onChange={(e) =>
+                    setAccountForm({
+                      ...accountForm,
+                      last_name:
+                        e.target.value,
+                    })
+                  }
+                />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  type="email"
+                  label="Email"
+                  value={accountForm.email}
+                  onChange={(e) =>
+                    setAccountForm({
+                      ...accountForm,
+                      email: e.target.value,
+                    })
+                  }
+                />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Phone Number"
+                  value={accountForm.phone}
+                  onChange={(e) =>
+                    setAccountForm({
+                      ...accountForm,
+                      phone: e.target.value,
+                    })
+                  }
+                />
+              </Grid>
+            </Grid>
+
+            <Box mt={4}>
+              <Button
+                variant="contained"
+                startIcon={<SaveIcon />}
+                onClick={handleSaveAccount}
+                disabled={loading}
+                sx={{
+                  borderRadius: 3,
+                  textTransform: "none",
+                  px: 4,
+                  height: 46,
+                }}
+              >
+                Save Changes
+              </Button>
+            </Box>
+          </CardContent>
+        )}
+
+        {/* ================= SECURITY TAB ================= */}
+        {activeTab === 1 && (
+          <CardContent sx={{ p: 4 }}>
+            <Typography
+              variant="h6"
+              fontWeight={700}
+              mb={4}
+            >
+              Security Settings
+            </Typography>
+
+            <Grid container spacing={3}>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  type="password"
+                  label="Current Password"
+                  value={
+                    securityForm.current_password
+                  }
+                  onChange={(e) =>
+                    setSecurityForm({
+                      ...securityForm,
+                      current_password:
+                        e.target.value,
+                    })
+                  }
+                />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  type="password"
+                  label="New Password"
+                  value={
+                    securityForm.new_password
+                  }
+                  onChange={(e) =>
+                    setSecurityForm({
+                      ...securityForm,
+                      new_password:
+                        e.target.value,
+                    })
+                  }
+                />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  type="password"
+                  label="Confirm Password"
+                  value={
+                    securityForm.confirm_password
+                  }
+                  onChange={(e) =>
+                    setSecurityForm({
+                      ...securityForm,
+                      confirm_password:
+                        e.target.value,
+                    })
+                  }
+                />
+              </Grid>
+
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={
+                        securityForm.two_factor_enabled
+                      }
+                      onChange={(e) =>
+                        setSecurityForm({
+                          ...securityForm,
+                          two_factor_enabled:
+                            e.target.checked,
+                        })
+                      }
+                    />
+                  }
+                  label="Enable Two-Factor Authentication"
+                />
+              </Grid>
+            </Grid>
+
+            <Box mt={4}>
+              <Button
+                variant="contained"
+                startIcon={<SaveIcon />}
+                onClick={handleSaveSecurity}
+                disabled={
+                  loading ||
+                  securityForm.new_password !==
+                    securityForm.confirm_password
+                }
+                sx={{
+                  borderRadius: 3,
+                  textTransform: "none",
+                  px: 4,
+                  height: 46,
+                }}
+              >
+                Change Password
+              </Button>
+            </Box>
+          </CardContent>
+        )}
+
+        {/* ================= NOTIFICATIONS TAB ================= */}
+        {/* {activeTab === 2 && (
+          <CardContent sx={{ p: 4 }}>
+            <Typography
+              variant="h6"
+              fontWeight={700}
+              mb={4}
+            >
+              Notification Preferences
+            </Typography>
+
+            <List>
+              <ListItem>
+                <ListItemText
+                  primary="Email Notifications"
+                  secondary="Receive updates via email"
+                />
+
+                <Switch
+                  checked={
+                    notificationSettings.email_notifications
+                  }
+                  onChange={(e) =>
+                    setNotificationSettings({
+                      ...notificationSettings,
+                      email_notifications:
+                        e.target.checked,
+                    })
+                  }
+                />
+              </ListItem>
+
+              <Divider />
+
+              <ListItem>
+                <ListItemText
+                  primary="SMS Notifications"
+                  secondary="Receive SMS alerts"
+                />
+
+                <Switch
+                  checked={
+                    notificationSettings.sms_notifications
+                  }
+                  onChange={(e) =>
+                    setNotificationSettings({
+                      ...notificationSettings,
+                      sms_notifications:
+                        e.target.checked,
+                    })
+                  }
+                />
+              </ListItem>
+
+              <Divider />
+
+              <ListItem>
+                <ListItemText
+                  primary="Push Notifications"
+                  secondary="Receive browser notifications"
+                />
+
+                <Switch
+                  checked={
+                    notificationSettings.push_notifications
+                  }
+                  onChange={(e) =>
+                    setNotificationSettings({
+                      ...notificationSettings,
+                      push_notifications:
+                        e.target.checked,
+                    })
+                  }
+                />
+              </ListItem>
+            </List>
+          </CardContent>
+        )} */}
+
+          {/* ================= CONFIGURATION TAB ================= */}
+         {/* {activeTab === 3 && (
+            <CardContent sx={{ p: 4 }}>
+              <Stack
+                direction="row"
+                justifyContent="space-between"
+                alignItems="center"
+                mb={4}
+                flexWrap="wrap"
+                gap={2}
+              >
+                <Box>
+                  <Typography
+                    variant="h5"
+                    fontWeight={800}
+                  >
+                    Vendor Configuration
+                  </Typography>
+
+                  <Typography
+                    color="#64748B"
+                    mt={1}
+                  >
+                    Manage API access,
+                    organization setup,
+                    billing, limits and
+                    SaaS controls
+                  </Typography>
                 </Box>
 
-                {/* Account Tab */}
-                {activeTab === 0 && (
-                    <CardContent>
-                        <Typography variant="h6" gutterBottom sx={{ mb: 3 }}>
-                            Profile Information
-                        </Typography>
-                        <Grid container spacing={3}>
-                            <Grid item xs={12} sm={6}>
-                                <TextField
-                                    fullWidth
-                                    label="First Name"
-                                    value={accountForm.first_name}
-                                    onChange={(e) => setAccountForm({ ...accountForm, first_name: e.target.value })}
-                                />
-                            </Grid>
-                            <Grid item xs={12} sm={6}>
-                                <TextField
-                                    fullWidth
-                                    label="Last Name"
-                                    value={accountForm.last_name}
-                                    onChange={(e) => setAccountForm({ ...accountForm, last_name: e.target.value })}
-                                />
-                            </Grid>
-                            <Grid item xs={12} sm={6}>
-                                <TextField
-                                    fullWidth
-                                    label="Email"
-                                    type="email"
-                                    value={accountForm.email}
-                                    onChange={(e) => setAccountForm({ ...accountForm, email: e.target.value })}
-                                />
-                            </Grid>
-                            <Grid item xs={12} sm={6}>
-                                <TextField
-                                    fullWidth
-                                    label="Phone Number"
-                                    value={accountForm.phone}
-                                    onChange={(e) => setAccountForm({ ...accountForm, phone: e.target.value })}
-                                />
-                            </Grid>
-                        </Grid>
-                        <Box sx={{ mt: 3 }}>
-                            <Button
-                                variant="contained"
-                                startIcon={<SaveIcon />}
-                                onClick={handleSaveAccount}
-                                disabled={loading}
-                            >
-                                Save Changes
-                            </Button>
-                        </Box>
-                    </CardContent>
-                )}
+                <Chip
+                  label="Super Admin Only"
+                  color="error"
+                  sx={{
+                    fontWeight: 700,
+                  }}
+                />
+              </Stack>
 
-                {/* Security Tab */}
-                {activeTab === 1 && (
-                    <CardContent>
-                        <Typography variant="h6" gutterBottom sx={{ mb: 3 }}>
-                            Security Settings
-                        </Typography>
-                        <Grid container spacing={3}>
-                            <Grid item xs={12}>
-                                <TextField
-                                    fullWidth
-                                    label="Current Password"
-                                    type="password"
-                                    value={securityForm.current_password}
-                                    onChange={(e) => setSecurityForm({ ...securityForm, current_password: e.target.value })}
-                                />
-                            </Grid>
-                            <Grid item xs={12} sm={6}>
-                                <TextField
-                                    fullWidth
-                                    label="New Password"
-                                    type="password"
-                                    value={securityForm.new_password}
-                                    onChange={(e) => setSecurityForm({ ...securityForm, new_password: e.target.value })}
-                                />
-                            </Grid>
-                            <Grid item xs={12} sm={6}>
-                                <TextField
-                                    fullWidth
-                                    label="Confirm New Password"
-                                    type="password"
-                                    value={securityForm.confirm_password}
-                                    onChange={(e) => setSecurityForm({ ...securityForm, confirm_password: e.target.value })}
-                                />
-                            </Grid>
-                            <Grid item xs={12}>
-                                <FormControlLabel
-                                    control={
-                                        <Switch
-                                            checked={securityForm.two_factor_enabled}
-                                            onChange={(e) => setSecurityForm({ ...securityForm, two_factor_enabled: e.target.checked })}
-                                        />
-                                    }
-                                    label="Enable Two-Factor Authentication"
-                                />
-                            </Grid>
-                        </Grid>
-                        <Box sx={{ mt: 3 }}>
-                            <Button
-                                variant="contained"
-                                startIcon={<SaveIcon />}
-                                onClick={handleSaveSecurity}
-                                disabled={loading || securityForm.new_password !== securityForm.confirm_password}
-                            >
-                                Change Password
-                            </Button>
-                        </Box>
-                    </CardContent>
-                )}
+              <Grid container spacing={3}>
+                <Grid item xs={12}>
+                  <Paper
+                    sx={{
+                      p: 3,
+                      borderRadius: 4,
+                      border:
+                        "1px solid #E2E8F0",
+                    }}
+                  >
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      mb={3}
+                      alignItems="center"
+                    >
+                      <BusinessIcon />
 
-                {/* Notifications Tab */}
-                {activeTab === 2 && (
-                    <CardContent>
-                        <Typography variant="h6" gutterBottom sx={{ mb: 3 }}>
-                            Notification Preferences
-                        </Typography>
-                        <List>
-                            <ListItem>
-                                <ListItemText
-                                    primary="Email Notifications"
-                                    secondary="Receive updates and alerts via email"
-                                />
-                                <Switch
-                                    checked={notificationSettings.email_notifications}
-                                    onChange={(e) => setNotificationSettings({ ...notificationSettings, email_notifications: e.target.checked })}
-                                />
-                            </ListItem>
-                            <Divider />
-                            <ListItem>
-                                <ListItemText
-                                    primary="SMS Notifications"
-                                    secondary="Receive important alerts via SMS"
-                                />
-                                <Switch
-                                    checked={notificationSettings.sms_notifications}
-                                    onChange={(e) => setNotificationSettings({ ...notificationSettings, sms_notifications: e.target.checked })}
-                                />
-                            </ListItem>
-                            <Divider />
-                            <ListItem>
-                                <ListItemText
-                                    primary="Push Notifications"
-                                    secondary="Receive browser notifications"
-                                />
-                                <Switch
-                                    checked={notificationSettings.push_notifications}
-                                    onChange={(e) => setNotificationSettings({ ...notificationSettings, push_notifications: e.target.checked })}
-                                />
-                            </ListItem>
-                        </List>
-                    </CardContent>
-                )}
-
-                {/* Configuration Tab */}
-                {activeTab === 3 && (
-                    <CardContent>
-                        {configLoading && !configuration ? (
-                            <Box display="flex" justifyContent="center" py={4}>
-                                <CircularProgress />
-                            </Box>
-                        ) : !tenantId ? (
-                            <Alert severity="info">Please select a tenant to configure settings.</Alert>
-                        ) : (
-                            <Stack spacing={3}>
-                                {/* Feature Toggles */}
-                                <Box>
-                                    <Typography variant="h6" gutterBottom>
-                                        Feature Toggles
-                                    </Typography>
-                                    <Grid container spacing={2} sx={{ mt: 1 }}>
-                                        <Grid item xs={12} md={6}>
-                                            <FormControlLabel
-                                                control={
-                                                    <Switch
-                                                        checked={configForm.enable_api_access}
-                                                        onChange={(e) => setConfigForm({ ...configForm, enable_api_access: e.target.checked })}
-                                                    />
-                                                }
-                                                label="API Access"
-                                            />
-                                            <Typography variant="caption" color="text.secondary" display="block">
-                                                Enable API access for this tenant
-                                            </Typography>
-                                        </Grid>
-                                        <Grid item xs={12} md={6}>
-                                            <FormControlLabel
-                                                control={
-                                                    <Switch
-                                                        checked={configForm.enable_advanced_analytics}
-                                                        onChange={(e) => setConfigForm({ ...configForm, enable_advanced_analytics: e.target.checked })}
-                                                    />
-                                                }
-                                                label="Advanced Analytics"
-                                            />
-                                            <Typography variant="caption" color="text.secondary" display="block">
-                                                Enable advanced analytics features
-                                            </Typography>
-                                        </Grid>
-                                        <Grid item xs={12} md={6}>
-                                            <FormControlLabel
-                                                control={
-                                                    <Switch
-                                                        checked={configForm.enable_webhooks}
-                                                        onChange={(e) => setConfigForm({ ...configForm, enable_webhooks: e.target.checked })}
-                                                    />
-                                                }
-                                                label="Webhooks"
-                                            />
-                                            <Typography variant="caption" color="text.secondary" display="block">
-                                                Enable webhook notifications
-                                            </Typography>
-                                        </Grid>
-                                        <Grid item xs={12} md={6}>
-                                            <FormControlLabel
-                                                control={
-                                                    <Switch
-                                                        checked={configForm.enable_audit_logs}
-                                                        onChange={(e) => setConfigForm({ ...configForm, enable_audit_logs: e.target.checked })}
-                                                    />
-                                                }
-                                                label="Audit Logs"
-                                            />
-                                            <Typography variant="caption" color="text.secondary" display="block">
-                                                Enable audit logging
-                                            </Typography>
-                                        </Grid>
-                                    </Grid>
-                                </Box>
-
-                                <Divider />
-
-                                {/* Rate Limits & Usage */}
-                                <Box>
-                                    <Typography variant="h6" gutterBottom>
-                                        Rate Limits & Usage
-                                    </Typography>
-                                    <Grid container spacing={2} sx={{ mt: 1 }}>
-                                        <Grid item xs={12} md={6}>
-                                            <TextField
-                                                fullWidth
-                                                type="number"
-                                                label="API Rate Limit"
-                                                value={configForm.api_rate_limit}
-                                                onChange={(e) => setConfigForm({ ...configForm, api_rate_limit: parseInt(e.target.value) || 0 })}
-                                                helperText="Requests per hour"
-                                            />
-                                        </Grid>
-                                        <Grid item xs={12} md={6}>
-                                            <TextField
-                                                fullWidth
-                                                type="number"
-                                                label="Max Users"
-                                                value={configForm.max_users}
-                                                onChange={(e) => setConfigForm({ ...configForm, max_users: parseInt(e.target.value) || 0 })}
-                                            />
-                                        </Grid>
-                                        <Grid item xs={12} md={6}>
-                                            <TextField
-                                                fullWidth
-                                                type="number"
-                                                label="Max Storage (MB)"
-                                                value={configForm.max_storage_mb}
-                                                onChange={(e) => setConfigForm({ ...configForm, max_storage_mb: parseInt(e.target.value) || 0 })}
-                                            />
-                                        </Grid>
-                                        <Grid item xs={12} md={6}>
-                                            <FormControl fullWidth>
-                                                <InputLabel>Billing Cycle</InputLabel>
-                                                <Select
-                                                    value={configForm.billing_cycle}
-                                                    label="Billing Cycle"
-                                                    onChange={(e) => setConfigForm({ ...configForm, billing_cycle: e.target.value })}
-                                                >
-                                                    <MenuItem value="monthly">Monthly</MenuItem>
-                                                    <MenuItem value="quarterly">Quarterly</MenuItem>
-                                                    <MenuItem value="yearly">Yearly</MenuItem>
-                                                </Select>
-                                            </FormControl>
-                                        </Grid>
-                                    </Grid>
-                                </Box>
-
-                                <Divider />
-
-                                {/* Module Licenses */}
-                                <Box>
-                                    <Typography variant="h6" gutterBottom>
-                                        Module Licenses
-                                    </Typography>
-                                    <Stack spacing={2} sx={{ mt: 1 }}>
-                                        {availableModules.map((module) => {
-                                            const isEnabled = configuration?.features?.includes(module.id) ?? module.enabled;
-                                            return (
-                                                <Paper key={module.id} variant="outlined" sx={{ p: 2 }}>
-                                                    <Box display="flex" justifyContent="space-between" alignItems="center">
-                                                        <Box>
-                                                            <Typography variant="subtitle1">{module.name}</Typography>
-                                                            <Chip
-                                                                label={isEnabled ? 'Active' : 'Inactive'}
-                                                                color={isEnabled ? 'success' : 'default'}
-                                                                size="small"
-                                                                sx={{ mt: 0.5 }}
-                                                            />
-                                                        </Box>
-                                                        <Switch
-                                                            checked={isEnabled}
-                                                            onChange={(e) => toggleModuleLicense(module.id, e.target.checked)}
-                                                            disabled={configLoading}
-                                                        />
-                                                    </Box>
-                                                </Paper>
-                                            );
-                                        })}
-                                    </Stack>
-                                </Box>
-
-                                <Divider />
-
-                                {/* API Keys Management */}
-                                <Box>
-                                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                                        <Typography variant="h6">API Keys</Typography>
-                                        <Button
-                                            variant="contained"
-                                            startIcon={<AddIcon />}
-                                            onClick={() => setApiKeyDialogOpen(true)}
-                                            disabled={!configForm.enable_api_access}
-                                        >
-                                            Create API Key
-                                        </Button>
-                                    </Box>
-
-                                    {selectedOrgId && (
-                                        <Box sx={{ mb: 3 }}>
-                                            <Typography variant="subtitle2" gutterBottom>
-                                                Organisation API Keys
-                                            </Typography>
-                                            {orgKeysLoading ? (
-                                                <CircularProgress size={24} />
-                                            ) : orgApiKeys?.length > 0 ? (
-                                                <TableContainer>
-                                                    <Table size="small">
-                                                        <TableHead>
-                                                            <TableRow>
-                                                                <TableCell>Key ID</TableCell>
-                                                                <TableCell>Scopes</TableCell>
-                                                                <TableCell>Status</TableCell>
-                                                                <TableCell>Expires</TableCell>
-                                                                <TableCell>Last Used</TableCell>
-                                                                <TableCell align="right">Actions</TableCell>
-                                                            </TableRow>
-                                                        </TableHead>
-                                                        <TableBody>
-                                                            {(orgApiKeys || []).map((key) => (
-                                                                <TableRow key={key.id}>
-                                                                    <TableCell>
-                                                                        <Typography variant="body2" fontFamily="monospace">
-                                                                            {key.key_id.slice(0, 16)}...
-                                                                        </Typography>
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        <Stack direction="row" spacing={0.5} flexWrap="wrap">
-                                                                            {key.scopes.slice(0, 2).map((scope) => (
-                                                                                <Chip key={scope} label={scope} size="small" variant="outlined" />
-                                                                            ))}
-                                                                            {key.scopes.length > 2 && (
-                                                                                <Chip label={`+${key.scopes.length - 2}`} size="small" />
-                                                                            )}
-                                                                        </Stack>
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        <Chip
-                                                                            label={key.is_active ? 'Active' : 'Revoked'}
-                                                                            color={key.is_active ? 'success' : 'error'}
-                                                                            size="small"
-                                                                        />
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        {key.expires_at ? formatDate(key.expires_at) : 'Never'}
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        {key.last_used_at ? formatDate(key.last_used_at) : 'Never'}
-                                                                    </TableCell>
-                                                                    <TableCell align="right">
-                                                                        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                                                                            <Tooltip title="View Audit Log">
-                                                                                <IconButton size="small" onClick={() => handleViewAudit(key.id)}>
-                                                                                    <VisibilityIcon fontSize="small" />
-                                                                                </IconButton>
-                                                                            </Tooltip>
-                                                                            <Tooltip title="Rotate Key">
-                                                                                <IconButton size="small" onClick={() => rotateOrgKey(key.id)}>
-                                                                                    <RefreshIcon fontSize="small" />
-                                                                                </IconButton>
-                                                                            </Tooltip>
-                                                                            <Tooltip title={key.is_active ? 'Revoke Key' : 'Delete Key'}>
-                                                                                <IconButton
-                                                                                    size="small"
-                                                                                    onClick={() => (key.is_active ? revokeOrgKey(key.id) : removeOrgKey(key.id))}
-                                                                                >
-                                                                                    {key.is_active ? <CancelIcon fontSize="small" /> : <DeleteIcon fontSize="small" />}
-                                                                                </IconButton>
-                                                                            </Tooltip>
-                                                                        </Stack>
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            ))}
-                                                        </TableBody>
-                                                    </Table>
-                                                </TableContainer>
-                                            ) : (
-                                                <Typography color="text.secondary">No API keys created yet.</Typography>
-                                            )}
-                                        </Box>
-                                    )}
-
-                                    {user?.id && (
-                                        <Box>
-                                            <Typography variant="subtitle2" gutterBottom>
-                                                User API Keys
-                                            </Typography>
-                                            {userKeysLoading ? (
-                                                <CircularProgress size={24} />
-                                            ) : userApiKeys?.length > 0 ? (
-                                                <TableContainer>
-                                                    <Table size="small">
-                                                        <TableHead>
-                                                            <TableRow>
-                                                                <TableCell>Key ID</TableCell>
-                                                                <TableCell>Scopes</TableCell>
-                                                                <TableCell>Status</TableCell>
-                                                                <TableCell>Expires</TableCell>
-                                                                <TableCell>Last Used</TableCell>
-                                                                <TableCell align="right">Actions</TableCell>
-                                                            </TableRow>
-                                                        </TableHead>
-                                                        <TableBody>
-                                                            {(userApiKeys || []).map((key) => (
-                                                                <TableRow key={key.id}>
-                                                                    <TableCell>
-                                                                        <Typography variant="body2" fontFamily="monospace">
-                                                                            {key.key_id.slice(0, 16)}...
-                                                                        </Typography>
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        <Stack direction="row" spacing={0.5} flexWrap="wrap">
-                                                                            {key.scopes.slice(0, 2).map((scope) => (
-                                                                                <Chip key={scope} label={scope} size="small" variant="outlined" />
-                                                                            ))}
-                                                                            {key.scopes.length > 2 && (
-                                                                                <Chip label={`+${key.scopes.length - 2}`} size="small" />
-                                                                            )}
-                                                                        </Stack>
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        <Chip
-                                                                            label={key.is_active ? 'Active' : 'Revoked'}
-                                                                            color={key.is_active ? 'success' : 'error'}
-                                                                            size="small"
-                                                                        />
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        {key.expires_at ? formatDate(key.expires_at) : 'Never'}
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        {key.last_used_at ? formatDate(key.last_used_at) : 'Never'}
-                                                                    </TableCell>
-                                                                    <TableCell align="right">
-                                                                        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                                                                            <Tooltip title="Rotate Key">
-                                                                                <IconButton size="small" onClick={() => rotateUserKey(key.id)}>
-                                                                                    <RefreshIcon fontSize="small" />
-                                                                                </IconButton>
-                                                                            </Tooltip>
-                                                                            <Tooltip title={key.is_active ? 'Revoke Key' : 'Delete Key'}>
-                                                                                <IconButton
-                                                                                    size="small"
-                                                                                    onClick={() => (key.is_active ? revokeUserKey(key.id) : removeUserKey(key.id))}
-                                                                                >
-                                                                                    {key.is_active ? <CancelIcon fontSize="small" /> : <DeleteIcon fontSize="small" />}
-                                                                                </IconButton>
-                                                                            </Tooltip>
-                                                                        </Stack>
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            ))}
-                                                        </TableBody>
-                                                    </Table>
-                                                </TableContainer>
-                                            ) : (
-                                                <Typography color="text.secondary">No user API keys created yet.</Typography>
-                                            )}
-                                        </Box>
-                                    )}
-                                </Box>
-
-                                <Box sx={{ pt: 2 }}>
-                                    <Button variant="contained" startIcon={<SaveIcon />} onClick={handleSaveConfiguration} disabled={configLoading}>
-                                        Save Configuration
-                                    </Button>
-                                </Box>
-                            </Stack>
-                        )}
-                    </CardContent>
-                )}
-            </Card>
-
-            {/* API Key Creation Dialog */}
-            <Dialog
-                open={apiKeyDialogOpen}
-                onClose={() => setApiKeyDialogOpen(false)}
-                maxWidth="sm"
-                fullWidth
-                disableEscapeKeyDown={false}
-            >
-                <DialogTitle>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                        <KeyIcon color="primary" />
-                        <Typography variant="h6">Create API Key</Typography>
+                      <Typography
+                        fontWeight={700}
+                        fontSize={18}
+                      >
+                        Organization Setup
+                      </Typography>
                     </Stack>
-                </DialogTitle>
-                <DialogContent>
-                    <Stack spacing={2} sx={{ mt: 1 }}>
-                        <FormControl fullWidth>
-                            <InputLabel>Scopes</InputLabel>
-                            <Select
-                                multiple
-                                value={newApiKeyScopes}
-                                onChange={(e) => setNewApiKeyScopes(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value)}
-                                label="Scopes"
-                            >
-                                {availableScopes.map((scope) => (
-                                    <MenuItem key={scope.value} value={scope.value}>
-                                        {scope.label}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
+
+                    <Grid container spacing={3}>
+                      <Grid item xs={12} md={6}>
                         <TextField
-                            type="datetime-local"
-                            label="Expires At (Optional)"
-                            value={newApiKeyExpiresAt}
-                            onChange={(e) => setNewApiKeyExpiresAt(e.target.value)}
-                            fullWidth
-                            InputLabelProps={{ shrink: true }}
+                          fullWidth
+                          label="Organization Name"
+                          value={
+                            configurationForm.organization_name
+                          }
+                          onChange={(e) =>
+                            setConfigurationForm(
+                              {
+                                ...configurationForm,
+                                organization_name:
+                                  e.target
+                                    .value,
+                              }
+                            )
+                          }
                         />
-                        {selectedOrgId && (
-                            <Alert severity="info">This key will be created for the selected organisation.</Alert>
-                        )}
+                      </Grid>
+
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Organization ID"
+                          value={
+                            configurationForm.organization_id
+                          }
+                          InputProps={{
+                            readOnly: true,
+                          }}
+                        />
+                      </Grid>
+
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          select
+                          label="Organization Type"
+                          value={
+                            configurationForm.organization_type
+                          }
+                          onChange={(e) =>
+                            setConfigurationForm(
+                              {
+                                ...configurationForm,
+                                organization_type:
+                                  e.target
+                                    .value,
+                              }
+                            )
+                          }
+                        >
+                          <MenuItem value="vendor">
+                            Vendor
+                          </MenuItem>
+
+                          <MenuItem value="estate">
+                            Estate
+                          </MenuItem>
+
+                          <MenuItem value="university">
+                            University
+                          </MenuItem>
+
+                          <MenuItem value="teaching_hospital">
+                            Teaching Hospital
+                          </MenuItem>
+
+                          <MenuItem value="community">
+                            Community
+                          </MenuItem>
+                        </TextField>
+                      </Grid>
+
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Commission Rate (%)"
+                          value={
+                            configurationForm.commission_rate
+                          }
+                          onChange={(e) =>
+                            setConfigurationForm(
+                              {
+                                ...configurationForm,
+                                commission_rate:
+                                  e.target
+                                    .value,
+                              }
+                            )
+                          }
+                        />
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                </Grid>
+
+                <Grid item xs={12}>
+                  <Paper
+                    sx={{
+                      p: 3,
+                      borderRadius: 4,
+                      border:
+                        "1px solid #E2E8F0",
+                    }}
+                  >
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      alignItems="center"
+                      mb={3}
+                    >
+                      <KeyIcon />
+
+                      <Typography
+                        fontWeight={700}
+                        fontSize={18}
+                      >
+                        API Configuration
+                      </Typography>
                     </Stack>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setApiKeyDialogOpen(false)}>Cancel</Button>
-                    <Button variant="contained" onClick={() => handleCreateApiKey(!!selectedOrgId)}>
-                        Create
-                    </Button>
-                </DialogActions>
-            </Dialog>
 
-            {/* API Key Secret Display Dialog */}
-            <Dialog
-                open={!!lastIssuedSecret}
-                onClose={() => setLastIssuedSecret(null)}
-                maxWidth="sm"
-                fullWidth
-                disableEscapeKeyDown={false}
-                onBackdropClick={() => setLastIssuedSecret(null)}
-            >
-                <DialogTitle>API Key Created</DialogTitle>
-                <DialogContent>
-                    {lastIssuedSecret && (
-                        <>
-                            <Alert severity="warning" sx={{ mb: 2 }}>
-                                Save this secret immediately. You won't be able to see it again!
-                            </Alert>
-                            <TextField
-                                label="Key ID"
-                                value={lastIssuedSecret.key_id || ''}
-                                fullWidth
-                                InputProps={{ readOnly: true }}
-                                sx={{ mb: 2 }}
-                            />
-                            <TextField
-                                label="Secret"
-                                type={showApiKeySecret[lastIssuedSecret.id] ? 'text' : 'password'}
-                                value={lastIssuedSecret.secret || ''}
-                                fullWidth
-                                InputProps={{
-                                    readOnly: true,
-                                    endAdornment: lastIssuedSecret.id && (
-                                        <IconButton onClick={() => setShowApiKeySecret({ ...showApiKeySecret, [lastIssuedSecret.id]: !showApiKeySecret[lastIssuedSecret.id] })}>
-                                            {showApiKeySecret[lastIssuedSecret.id] ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                                        </IconButton>
-                                    ),
-                                }}
-                            />
-                        </>
-                    )}
-                </DialogContent>
-                <DialogActions>
-                    <Button variant="contained" onClick={() => setLastIssuedSecret(null)}>
-                        Got it
-                    </Button>
-                </DialogActions>
-            </Dialog>
+                    <Grid container spacing={3}>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="API Key"
+                          value={
+                            configurationForm.api_key
+                          }
+                          InputProps={{
+                            endAdornment: (
+                              <InputAdornment position="end">
+                                <IconButton
+                                  onClick={() =>
+                                    navigator.clipboard.writeText(
+                                      configurationForm.api_key
+                                    )
+                                  }
+                                >
+                                  <CopyIcon />
+                                </IconButton>
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
+                      </Grid>
 
-            {/* Audit Log Dialog */}
-            <Dialog
-                open={auditDialogOpen}
-                onClose={() => setAuditDialogOpen(false)}
-                maxWidth="md"
-                fullWidth
-                disableEscapeKeyDown={false}
-            >
-                <DialogTitle>API Key Audit Log</DialogTitle>
-                <DialogContent>
-                    {auditEntries?.length > 0 ? (
-                        <TableContainer>
-                            <Table size="small">
-                                <TableHead>
-                                    <TableRow>
-                                        <TableCell>Date</TableCell>
-                                        <TableCell>Action</TableCell>
-                                        <TableCell>IP Address</TableCell>
-                                        <TableCell>Status</TableCell>
-                                    </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                    {(auditEntries || []).map((entry) => (
-                                        <TableRow key={entry.id}>
-                                            <TableCell>{formatDate(entry.requested_at, 'full')}</TableCell>
-                                            <TableCell>{entry.action}</TableCell>
-                                            <TableCell>{entry.ip_address || '—'}</TableCell>
-                                            <TableCell>
-                                                <Chip
-                                                    label={entry.success ? 'Success' : 'Failed'}
-                                                    color={entry.success ? 'success' : 'error'}
-                                                    size="small"
-                                                />
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                        </TableContainer>
-                    ) : (
-                        <Typography color="text.secondary">No audit entries found.</Typography>
-                    )}
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setAuditDialogOpen(false)}>Close</Button>
-                </DialogActions>
-            </Dialog>
-        </Box>
-    );
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="API Secret"
+                          value={
+                            configurationForm.api_secret
+                          }
+                        />
+                      </Grid>
+
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          select
+                          label="API Scope"
+                          value={
+                            configurationForm.api_scope
+                          }
+                          onChange={(e) =>
+                            setConfigurationForm(
+                              {
+                                ...configurationForm,
+                                api_scope:
+                                  e.target
+                                    .value,
+                              }
+                            )
+                          }
+                        >
+                          <MenuItem value="read_only">
+                            Read Only
+                          </MenuItem>
+
+                          <MenuItem value="write_only">
+                            Write Only
+                          </MenuItem>
+
+                          <MenuItem value="full_access">
+                            Full Access
+                          </MenuItem>
+                        </TextField>
+                      </Grid>
+
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Rate Limit"
+                          value={
+                            configurationForm.rate_limit
+                          }
+                          onChange={(e) =>
+                            setConfigurationForm(
+                              {
+                                ...configurationForm,
+                                rate_limit:
+                                  e.target
+                                    .value,
+                              }
+                            )
+                          }
+                          helperText="Requests per minute"
+                        />
+                      </Grid>
+
+                      <Grid item xs={12}>
+                        <Stack
+                          direction="row"
+                          spacing={2}
+                          flexWrap="wrap"
+                        >
+                          <Button
+                            variant="contained"
+                            startIcon={
+                              <RefreshIcon />
+                            }
+                            onClick={
+                              generateApiKey
+                            }
+                            sx={{
+                              borderRadius: 3,
+                              textTransform:
+                                "none",
+                            }}
+                          >
+                            Generate API Key
+                          </Button>
+
+                          <Button
+                            variant="outlined"
+                            startIcon={
+                              <RefreshIcon />
+                            }
+                            onClick={
+                              rotateApiKey
+                            }
+                            sx={{
+                              borderRadius: 3,
+                              textTransform:
+                                "none",
+                            }}
+                          >
+                            Rotate Secret Key
+                          </Button>
+                        </Stack>
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                </Grid>
+
+                <Grid item xs={12}>
+                  <Paper
+                    sx={{
+                      p: 3,
+                      borderRadius: 4,
+                      border:
+                        "1px solid #E2E8F0",
+                    }}
+                  >
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      mb={3}
+                      alignItems="center"
+                    >
+                      <DomainIcon />
+
+                      <Typography
+                        fontWeight={700}
+                        fontSize={18}
+                      >
+                        Domain & Network
+                      </Typography>
+                    </Stack>
+
+                    <Grid container spacing={3}>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Domain Setup"
+                          placeholder="example.com"
+                          value={
+                            configurationForm.domain
+                          }
+                          onChange={(e) =>
+                            setConfigurationForm(
+                              {
+                                ...configurationForm,
+                                domain:
+                                  e.target
+                                    .value,
+                              }
+                            )
+                          }
+                        />
+                      </Grid>
+
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Allowed IP Address"
+                          placeholder="192.168.0.1"
+                          value={
+                            configurationForm.ip_address
+                          }
+                          onChange={(e) =>
+                            setConfigurationForm(
+                              {
+                                ...configurationForm,
+                                ip_address:
+                                  e.target
+                                    .value,
+                              }
+                            )
+                          }
+                        />
+                      </Grid>
+
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="Webhook URL"
+                          placeholder="https://yourdomain.com/webhook"
+                          value={
+                            configurationForm.webhook_url
+                          }
+                          onChange={(e) =>
+                            setConfigurationForm(
+                              {
+                                ...configurationForm,
+                                webhook_url:
+                                  e.target
+                                    .value,
+                              }
+                            )
+                          }
+                        />
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                </Grid>
+
+                <Grid item xs={12}>
+                  <Paper
+                    sx={{
+                      p: 3,
+                      borderRadius: 4,
+                      border:
+                        "1px solid #E2E8F0",
+                    }}
+                  >
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      mb={3}
+                      alignItems="center"
+                    >
+                      <PublicIcon />
+
+                      <Typography
+                        fontWeight={700}
+                        fontSize={18}
+                      >
+                        SaaS Billing &
+                        Limits
+                      </Typography>
+                    </Stack>
+
+                    <Grid container spacing={3}>
+                      <Grid item xs={12} md={4}>
+                        <TextField
+                          fullWidth
+                          type="date"
+                          label="Expiration Date"
+                          InputLabelProps={{
+                            shrink: true,
+                          }}
+                          value={
+                            configurationForm.expiration_date
+                          }
+                          onChange={(e) =>
+                            setConfigurationForm(
+                              {
+                                ...configurationForm,
+                                expiration_date:
+                                  e.target
+                                    .value,
+                              }
+                            )
+                          }
+                        />
+                      </Grid>
+
+                      <Grid item xs={12} md={4}>
+                        <TextField
+                          fullWidth
+                          label="Data Limit"
+                          value={
+                            configurationForm.data_limit
+                          }
+                          onChange={(e) =>
+                            setConfigurationForm(
+                              {
+                                ...configurationForm,
+                                data_limit:
+                                  e.target
+                                    .value,
+                              }
+                            )
+                          }
+                        />
+                      </Grid>
+
+                      <Grid item xs={12} md={4}>
+                        <TextField
+                          fullWidth
+                          select
+                          label="Billing Cycle"
+                          value={
+                            configurationForm.billing_cycle
+                          }
+                          onChange={(e) =>
+                            setConfigurationForm(
+                              {
+                                ...configurationForm,
+                                billing_cycle:
+                                  e.target
+                                    .value,
+                              }
+                            )
+                          }
+                        >
+                          <MenuItem value="monthly">
+                            Monthly
+                          </MenuItem>
+
+                          <MenuItem value="quarterly">
+                            Quarterly
+                          </MenuItem>
+
+                          <MenuItem value="yearly">
+                            Yearly
+                          </MenuItem>
+                        </TextField>
+                      </Grid>
+
+                      <Grid item xs={12}>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={
+                                configurationForm.saas_enabled
+                              }
+                              onChange={(e) =>
+                                setConfigurationForm(
+                                  {
+                                    ...configurationForm,
+                                    saas_enabled:
+                                      e.target
+                                        .checked,
+                                  }
+                                )
+                              }
+                            />
+                          }
+                          label="Enable SaaS Billing"
+                        />
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                </Grid>
+              </Grid>
+
+              <Box mt={4}>
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={<SaveIcon />}
+                  onClick={
+                    handleSaveConfiguration
+                  }
+                  disabled={loading}
+                  sx={{
+                    borderRadius: 3,
+                    textTransform: "none",
+                    px: 5,
+                    height: 52,
+                    fontWeight: 700,
+                  }}
+                >
+                  Save Configuration
+                </Button>
+              </Box>
+            </CardContent>
+          )}  */}
+          {/* ================= ADMIN MANAGEMENT TAB ================= */}
+          {activeTab === 2 && (
+            <CreateNewAdmin />
+          )}
+          {/* ================= ADMIN LIST TAB ================= */}
+          {activeTab === 3 && (
+            <AllAdmin />
+          )}
+          {activeTab === 4 && (
+            <AssignPermission />
+          )}
+      </Card>
+    </Box>
+  );
 };
 
 export default Settings;

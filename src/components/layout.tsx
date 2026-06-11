@@ -117,17 +117,22 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     ];
 
     // Left side menus (drawer)
+    const hierarchy = user?.related_vendor?.hierachy;
+
+    const canSeeOnboarding = !['pos', 'cashier'].includes(hierarchy ?? '');
+
     const leftMenuItems = [
         { text: 'Dashboard', icon: <Dashboard />, path: '/tenants/dashboard' },
-        ...(user?.related_vendor?.hierachy !== 'pos'
-        ? [
-              {
-                  text: 'Vendors',
-                  icon: <Business />,
-                  path: '/tenants/vendors',
-              },
-          ]
-        : []),
+
+        ...(canSeeOnboarding
+            ? [
+                {
+                    text: 'Onboarding',
+                    icon: <Business />,
+                    path: '/tenants/vendors',
+                },
+            ]
+            : []),
         { text: 'Transactions', icon: <Receipt />, path: '/transactions' },
         // { text: 'Wallets', icon: <AccountBalance />, path: '/tenants/wallets' },
         // { text: 'Agents', icon: <PeopleAlt />, path: '/agents' },
