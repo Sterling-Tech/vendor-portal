@@ -18,6 +18,7 @@ import Layout from './components/layout';
 import PointOfSale from './pages/POS/PointOfSale';
 import AgentConsole from './pages/Agents/AgentConsole';
 import PrepaidServices from './pages/Prepaid/PrepaidServices';
+import OtpVerify from './pages/Auth/Otp';
 
 // Enhanced theme
 const theme = createTheme({
@@ -94,8 +95,10 @@ const App: React.FC = () => {
                             v7_relativeSplatPath: true,
                         }}
                     >
+                        
                         <Routes>
                             <Route path="/login" element={<Login />} />
+                            <Route path="/otp-verify" element={<OtpVerify />} />
                             <Route
                                 path="/tenants/dashboard"
                                 element={

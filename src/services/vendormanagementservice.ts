@@ -3,22 +3,24 @@
  * Centralises all API calls for the VendorManagement feature.
  * Import and use these in your component instead of inline fetch calls.
  */
+import { get, post, patch, del } from './api';
+import { Tenant } from './tenantService';
 
-export const API_BASE = 'http://188.166.161.13:8061';
+// export const API_BASE = 'http://188.166.161.13:8061';
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
-export const buildHeaders = (): HeadersInit => {
-    const token =
-        typeof window !== 'undefined'
-            ? localStorage.getItem('token') ||
-              localStorage.getItem('access_token') ||
-              localStorage.getItem('accessToken')
-            : null;
-    return {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    };
-};
+// export const buildHeaders = (): HeadersInit => {
+//     const token =
+//         typeof window !== 'undefined'
+//             ? localStorage.getItem('token') ||
+//               localStorage.getItem('access_token') ||
+//               localStorage.getItem('accessToken')
+//             : null;
+//     return {
+//         'Content-Type': 'application/json',
+//         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+//     };
+// };
 
 export const buildQuery = <T extends object>(params?: T): string => {
     if (!params) return '';
@@ -34,16 +36,16 @@ export const buildQuery = <T extends object>(params?: T): string => {
     return q.toString() ? `?${q.toString()}` : '';
 };
 
-/** Generic fetch wrapper — throws the parsed JSON body on non-ok responses */
-const apiFetch = async <T>(path: string, options?: RequestInit): Promise<T> => {
-    const res = await fetch(`${API_BASE}${path}`, {
-        headers: buildHeaders(),
-        ...options,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw data;
-    return data as T;
-};
+// /** Generic fetch wrapper — throws the parsed JSON body on non-ok responses */
+// const apiFetch = async <T>(path: string, options?: RequestInit): Promise<T> => {
+//     const res = await fetch(`${API_BASE}${path}`, {
+//         headers: buildHeaders(),
+//         ...options,
+//     });
+//     const data = await res.json().catch(() => ({}));
+//     if (!res.ok) throw data;
+//     return data as T;
+// };
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 export interface VendorListParams {
@@ -128,16 +130,18 @@ export interface CreateVendorPayload {
     [key: string]: any;
 }
 
+
+
 // ─── Service object ────────────────────────────────────────────────────────────
 export const vendorManagementService = {
     /** Fetch all related child vendors with optional filters */
     getRelatedVendors(params?: VendorListParams) {
-        return apiFetch<any>(`/vendor/retrieve/related-children/${buildQuery(params)}`);
+        return get<any>(`/vendor/retrieve/related-children/${buildQuery(params)}`);
     },
 
     /** Fetch summary analytics for the stat cards */
     getAnalytics(params: AnalyticsParams) {
-        return apiFetch<{
+        return get<{
             total_balance: number;
             total_transactions: number;
             processed_today: number;
@@ -147,12 +151,12 @@ export const vendorManagementService = {
 
     /** Fetch direct children of a specific vendor */
     getVendorChildren(vendorId: number) {
-        return apiFetch<any>(`/vendor/retrieve/related-children/?vendor_id=${vendorId}`);
+        return get<any>(`/vendor/retrieve/related-children/?vendor_id=${vendorId}`);
     },
 
     /** Paginated transactions for a specific vendor */
     getVendorTransactions(params: TransactionParams) {
-        return apiFetch<{
+        return get<{
             count: number;
             next: string | null;
             previous: string | null;
@@ -162,23 +166,17 @@ export const vendorManagementService = {
 
     /** Create a new vendor / sub-vendor / agent / cashier / POS */
     createVendor(payload: CreateVendorPayload) {
-        return apiFetch<any>('/vendor/create/', {
-            method: 'POST',
-            body: JSON.stringify(payload),
-        });
+        return post<any>('/vendor/create/', payload);
     },
 
     /** Update vendor configuration (commission, limits, API settings etc.) */
     updateVendorConfig(vendorId: number, payload: VendorConfigPayload) {
-        return apiFetch<any>(`/vendor/update/${vendorId}/`, {
-            method: 'PATCH',
-            body: JSON.stringify(payload),
-        });
+        return patch<any>(`/vendor/update/${vendorId}/`, payload);
     },
 
     /** Hard-delete a vendor */
     deleteVendor(vendorId: number) {
-        return apiFetch<void>(`/vendor/delete/${vendorId}/`, { method: 'DELETE' });
+        return del<void>(`/vendor/delete/${vendorId}/`);
     },
 };
 

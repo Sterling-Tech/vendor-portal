@@ -1,17 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress,
-    Collapse, Divider, Drawer, FormControl, FormHelperText, Grid, IconButton,
-    InputAdornment, InputLabel, List, ListItemButton, ListItemText, MenuItem,
-    Paper, Select, Snackbar, Stack, Switch, Tab, Table, TableBody, TableCell,
-    TableHead, TablePagination, TableRow, Tabs, TextField, Typography,
+    Checkbox, Collapse, Divider, Drawer, FormControl, FormControlLabel,
+    FormHelperText, Grid, IconButton, InputAdornment, InputLabel,
+    List, ListItemButton, ListItemText, MenuItem, Paper, Select, Snackbar,
+    Stack, Switch, Tab, Table, TableBody, TableCell, TableHead,
+    TablePagination, TableRow, Tabs, TextField, Typography,
     Dialog, DialogContent, Tooltip,
 } from '@mui/material';
 import {
     AccountBalance, ArrowBack, ArrowDropDown, ArrowForward, Business,
     CheckCircle, ChevronRight, Close, ContentCopy, Domain, Download,
-    People, Receipt, Refresh, RotateRight, Search, Delete, NavigateNext, Settings,
-    TrendingDown, TrendingUp,
+    People, Receipt, Refresh, RotateRight, Search, Delete, NavigateNext,
+    Settings, TrendingDown, TrendingUp, Person,
 } from '@mui/icons-material';
 import { useAppSelector } from '../../../store/hooks';
 import {
@@ -26,7 +27,7 @@ type VendorLevelFilter = VendorLevel | 'all';
 type VendorStatusFilter = 'all' | 'active' | 'inactive' | 'suspended' | 'pending' | 'review';
 type ChipColor = 'default' | 'primary' | 'secondary' | 'success' | 'warning' | 'info' | 'error';
 type MuiColor = 'primary' | 'secondary' | 'success' | 'warning' | 'info' | 'error';
-type StatFilterKey = 'active' | 'sub_vendor' | 'agent' | 'cashier' | 'pos'; // vendor removed
+type StatFilterKey = 'active' | 'sub_vendor' | 'agent' | 'cashier' | 'pos';
 
 type RelatedVendorLite = { id: number; email: string; business_name: string; account_status: string; hierachy: string };
 type RelatedVendor = {
@@ -62,6 +63,17 @@ const STEP_SUBTITLES = [
     'Transaction controls', 'Entity and agreement',
 ];
 const CONFIG_TABS = ['Commission', 'Vol. Targets', 'Enable / Disable', 'API & Rate Limit'];
+
+// ─── Hierarchy rules: given a parent's hierarchy, what can they create? ───────
+const getAllowedChildHierarchies = (parentHierarchy: string): VendorLevel[] => {
+    switch ((parentHierarchy || '').toLowerCase()) {
+        case 'vendor':     return ['sub_vendor', 'agent', 'cashier', 'pos'];
+        case 'sub_vendor': return ['agent', 'cashier', 'pos'];
+        case 'agent':      return ['cashier', 'pos'];
+        case 'cashier':    return ['pos'];
+        default:           return ['sub_vendor', 'agent', 'cashier', 'pos'];
+    }
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (d: Date) => d.toISOString().split('T')[0];
@@ -115,18 +127,15 @@ const buildVendorTree = (vendors: RelatedVendor[]): VendorTreeNode[] => {
     return roots;
 };
 
-// ─── Shared input sx (gray bg + border radius) ────────────────────────────────
 const inputSx = {
     '& .MuiOutlinedInput-root': {
-        borderRadius: 2,
-        bgcolor: '#f3f4f8',
+        borderRadius: 2, bgcolor: '#f3f4f8',
         '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#6366f1' },
         '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#1e3a8a' },
     },
     '& .MuiOutlinedInput-input': { bgcolor: 'transparent' },
 };
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
 const StatCard = ({ title, value, icon, color = 'primary', subtitle }: { title: string; value: React.ReactNode; icon: React.ReactNode; color?: MuiColor; subtitle?: string }) => (
     <Card sx={{ height: '100%', borderRadius: 2, transition: 'all 0.35s ease' }}>
         <CardContent>
@@ -158,7 +167,10 @@ type VendorFormState = typeof EMPTY_FORM;
 
 const validateStep = (step: number, form: VendorFormState): Record<string, string> => {
     const e: Record<string, string> = {};
-    if (step === 0 && !form.hierachy) e.hierachy = 'Hierarchy is required';
+    if (step === 0) {
+        if (!form.related_vendor) e.related_vendor = 'Please select a parent vendor or choose Self';
+        if (!form.hierachy) e.hierachy = 'Please select a hierarchy';
+    }
     if (step === 1) {
         if (!form.business_name.trim()) e.business_name = 'Business name is required';
         if (!form.email.trim()) e.email = 'Email is required';
@@ -227,29 +239,88 @@ const VendorManagement: React.FC = () => {
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
     const [dialogError, setDialogError] = useState<string | null>(null);
 
+    // ── Step 0: vendor picker state ───────────────────────────────────────────
+    const [relatedVendorList, setRelatedVendorList] = useState<RelatedVendor[]>([]);
+    const [vendorListLoading, setVendorListLoading] = useState(false);
+    const [isSelf, setIsSelf] = useState(false);
+    // The vendor object that is currently selected as parent (drives hierarchy options)
+    const [selectedParentVendor, setSelectedParentVendor] = useState<RelatedVendor | null>(null);
+
     // config panel
     const [configVendor, setConfigVendor] = useState<RelatedVendor | null>(null);
     const [configTab, setConfigTab] = useState(0);
     const [configForm, setConfigForm] = useState<VendorConfigPayload>({});
     const [savingConfig, setSavingConfig] = useState(false);
     const [configError, setConfigError] = useState<string | null>(null);
-    const [apiKeyVisible, setApiKeyVisible] = useState(false);
 
-    const currentHierarchy = user?.related_vendor?.hierachy || 'vendor';
-    const getAllowedHierarchies = () => {
-        switch (currentHierarchy) {
-            case 'vendor': return ['sub_vendor', 'agent', 'cashier', 'pos'];
-            case 'sub_vendor': return ['agent', 'cashier', 'pos'];
-            case 'agent': return ['cashier', 'pos'];
-            case 'cashier': return ['pos'];
-            default: return [];
+    // ── Fetch the dropdown list of all related vendors ────────────────────────
+    const fetchRelatedVendorList = useCallback(async () => {
+        setVendorListLoading(true);
+        try {
+            const payload = await vendorManagementService.getRelatedVendors({});
+            setRelatedVendorList(parseVendorList(payload));
+        } catch {
+            setRelatedVendorList([]);
+        } finally {
+            setVendorListLoading(false);
         }
-    };
+    }, []);
+
+    // Fetch vendor list every time the dialog opens; reset Step-0 state
+    useEffect(() => {
+        if (createVendorOpen) {
+            fetchRelatedVendorList();
+            setIsSelf(false);
+            setSelectedParentVendor(null);
+        }
+    }, [createVendorOpen, fetchRelatedVendorList]);
 
     const setField = (key: keyof VendorFormState, value: any) => {
         setVendorForm(prev => ({ ...prev, [key]: value }));
         if (fieldErrors[key]) setFieldErrors(prev => { const n = { ...prev }; delete n[key]; return n; });
     };
+
+    // ── "Self" checkbox handler ───────────────────────────────────────────────
+    const handleSelfToggle = (checked: boolean) => {
+        setIsSelf(checked);
+        if (checked) {
+            // Use current user's vendor as the parent
+            const selfId = String(user?.related_vendor?.id || '');
+            const selfHierarchy = user?.related_vendor?.hierachy || 'vendor';
+            setField('related_vendor', selfId);
+            setField('hierachy', ''); // reset — user still picks from filtered options
+            setSelectedParentVendor({
+                id: Number(selfId),
+                business_name: user?.related_vendor?.business_name || 'Me (Self)',
+                email: user?.email || '',
+                phone_number: '',
+                address: '', city: '', state: '', country: '', postal_code: '',
+                account_status: 'active',
+                hierachy: selfHierarchy,
+                created_at: '',
+            });
+        } else {
+            setField('related_vendor', '');
+            setField('hierachy', '');
+            setSelectedParentVendor(null);
+        }
+    };
+
+    // ── Related vendor dropdown change ────────────────────────────────────────
+    const handleParentVendorChange = (vendorId: string) => {
+        setField('related_vendor', vendorId);
+        setField('hierachy', ''); // reset hierarchy when parent changes
+        const found = relatedVendorList.find(v => String(v.id) === vendorId) || null;
+        setSelectedParentVendor(found);
+        if (fieldErrors.related_vendor || fieldErrors.hierachy)
+            setFieldErrors(prev => { const n = { ...prev }; delete n.related_vendor; delete n.hierachy; return n; });
+    };
+
+    // Allowed child hierarchies based on selected parent
+    const allowedHierarchies = useMemo<VendorLevel[]>(() => {
+        if (!selectedParentVendor) return [];
+        return getAllowedChildHierarchies(selectedParentVendor.hierachy);
+    }, [selectedParentVendor]);
 
     // ── Wizard handlers ───────────────────────────────────────────────────────
     const handleNext = () => {
@@ -261,13 +332,14 @@ const VendorManagement: React.FC = () => {
     const handleCloseDialog = () => {
         setCreateVendorOpen(false); setVendorForm({ ...EMPTY_FORM });
         setFieldErrors({}); setDialogError(null); setCurrentStep(0);
+        setIsSelf(false); setSelectedParentVendor(null);
     };
     const handleCreateVendor = async () => {
         const errs = validateStep(currentStep, vendorForm);
         if (Object.keys(errs).length) { setFieldErrors(errs); return; }
         setCreatingVendor(true); setDialogError(null);
         try {
-            const payload: Record<string, any> = { ...vendorForm, related_vendor: user?.related_vendor?.id };
+            const payload: Record<string, any> = { ...vendorForm };
             Object.keys(payload).forEach(k => { if (payload[k] === '' || payload[k] == null) delete payload[k]; });
             await vendorManagementService.createVendor(payload as any);
             setSuccess('Vendor created successfully');
@@ -278,16 +350,10 @@ const VendorManagement: React.FC = () => {
         } finally { setCreatingVendor(false); }
     };
 
-    // ── Config panel handlers ─────────────────────────────────────────────────
+    // ── Config panel ──────────────────────────────────────────────────────────
     const openConfig = (vendor: RelatedVendor) => {
-        setConfigVendor(vendor);
-        setConfigTab(0);
-        setConfigError(null);
-        setConfigForm({
-            commission_rate: '', funding_cap: '', transaction_max: '', monthly_target: '',
-            api_rate_limit_per_minute: '60', api_rate_limit_per_day: '20000',
-            webhook_url: '', enable_api_access: true,
-        });
+        setConfigVendor(vendor); setConfigTab(0); setConfigError(null);
+        setConfigForm({ commission_rate: '', funding_cap: '', transaction_max: '', monthly_target: '', api_rate_limit_per_minute: '60', api_rate_limit_per_day: '20000', webhook_url: '', enable_api_access: true });
     };
     const closeConfig = () => { setConfigVendor(null); setConfigError(null); };
     const handleSaveConfig = async () => {
@@ -297,14 +363,12 @@ const VendorManagement: React.FC = () => {
             const payload: Record<string, any> = { ...configForm };
             Object.keys(payload).forEach(k => { if (payload[k] === '' || payload[k] == null) delete payload[k]; });
             await vendorManagementService.updateVendorConfig(configVendor.id, payload);
-            setSuccess('Configuration saved successfully');
-            closeConfig();
-        } catch (err: any) {
-            setConfigError(extractBackendError(err));
-        } finally { setSavingConfig(false); }
+            setSuccess('Configuration saved successfully'); closeConfig();
+        } catch (err: any) { setConfigError(extractBackendError(err)); }
+        finally { setSavingConfig(false); }
     };
 
-    // ── Fetches (use service layer) ───────────────────────────────────────────
+    // ── Data fetches ──────────────────────────────────────────────────────────
     const fetchVendorAnalytics = useCallback(async () => {
         setAnalyticsLoading(true);
         try {
@@ -345,10 +409,8 @@ const VendorManagement: React.FC = () => {
 
     const fetchVendorChildren = useCallback(async (vendorId: number) => {
         setDetailLoading(true);
-        try {
-            const payload = await vendorManagementService.getVendorChildren(vendorId);
-            setSelectedChildren(parseVendorList(payload));
-        } catch { setSelectedChildren([]); }
+        try { const payload = await vendorManagementService.getVendorChildren(vendorId); setSelectedChildren(parseVendorList(payload)); }
+        catch { setSelectedChildren([]); }
         finally { setDetailLoading(false); }
     }, []);
 
@@ -360,7 +422,6 @@ const VendorManagement: React.FC = () => {
         } catch (err: any) { setError(extractBackendError(err)); }
     };
 
-    // ── Effects ───────────────────────────────────────────────────────────────
     useEffect(() => { fetchRelatedVendors(); fetchVendorAnalytics(); }, [fetchRelatedVendors, fetchVendorAnalytics]);
     useEffect(() => {
         if (selectedVendor) fetchVendorTransactions(selectedVendor.id, transactionPage + 1, transactionRowsPerPage);
@@ -389,14 +450,9 @@ const VendorManagement: React.FC = () => {
 
     const stats = useMemo(() => {
         const byLevel = (l: VendorLevel) => { const s = new Set<number>(); vendors.forEach(v => { if (normalizeLevel(v.hierachy) === l) s.add(v.id); }); return s.size; };
-        return {
-            subVendors: byLevel('sub_vendor'), agents: byLevel('agent'),
-            cashiers: byLevel('cashier'), pos: byLevel('pos'),
-            active: vendors.filter(v => v.account_status?.toLowerCase() === 'active').length,
-        };
+        return { subVendors: byLevel('sub_vendor'), agents: byLevel('agent'), cashiers: byLevel('cashier'), pos: byLevel('pos'), active: vendors.filter(v => v.account_status?.toLowerCase() === 'active').length };
     }, [vendors]);
 
-    // dynamic cards when stat filter is active
     const filteredStats = useMemo(() => {
         if (!statFilter) return null;
         const active = filteredVendors.filter(v => v.account_status?.toLowerCase() === 'active').length;
@@ -422,7 +478,7 @@ const VendorManagement: React.FC = () => {
         const rows = filteredVendors.map(v => [v.id, v.business_name, v.email, v.phone_number, levelLabel(v.hierachy), v.account_status, getWalletBalance(v), v.city, v.state, v.country, v.related_vendor?.business_name || '', v.created_at]);
         const csv = [headers, ...rows].map(r => r.map(escapeCsv).join(',')).join('\n');
         const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-        const a = document.createElement('a'); a.href = url; a.download = `vendors.csv`;
+        const a = document.createElement('a'); a.href = url; a.download = 'vendors.csv';
         document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
         setSuccess(`Exported ${rows.length} vendors`);
     };
@@ -454,51 +510,196 @@ const VendorManagement: React.FC = () => {
         </List>
     );
 
-    // ── Pop chip (scale pulse instead of bounce) ──────────────────────────────
     const StatFilterChip = ({ label, filterKey, count }: { label: string; filterKey: StatFilterKey; count: number }) => {
         const isActive = statFilter === filterKey;
         return (
-            <Chip
-                label={`${count} ${label}`}
-                onClick={() => { setStatFilter(isActive ? null : filterKey); setPage(0); }}
-                sx={{
-                    cursor: 'pointer', fontWeight: isActive ? 700 : 400,
-                    bgcolor: isActive ? '#1e3a8a' : undefined,
-                    color: isActive ? '#fff' : undefined,
-                    borderColor: isActive ? '#1e3a8a' : undefined,
-                    // pop scale pulse instead of bounce
-                    animation: !isActive ? 'chipPop 2s ease-in-out infinite' : 'none',
-                    transition: 'all 0.25s ease',
-                    '&:hover': { bgcolor: isActive ? '#1e40af' : undefined, transform: 'scale(1.05)' },
-                }}
-                variant={isActive ? 'filled' : 'outlined'}
-                size="small"
-            />
+            <Chip label={`${count} ${label}`} onClick={() => { setStatFilter(isActive ? null : filterKey); setPage(0); }}
+                sx={{ cursor: 'pointer', fontWeight: isActive ? 700 : 400, bgcolor: isActive ? '#1e3a8a' : undefined, color: isActive ? '#fff' : undefined, borderColor: isActive ? '#1e3a8a' : undefined, animation: !isActive ? 'chipPop 2s ease-in-out infinite' : 'none', transition: 'all 0.25s ease', '&:hover': { bgcolor: isActive ? '#1e40af' : undefined, transform: 'scale(1.05)' } }}
+                variant={isActive ? 'filled' : 'outlined'} size="small" />
         );
     };
 
-    // ── Wizard step content ───────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STEP CONTENT
+    // ═══════════════════════════════════════════════════════════════════════════
     const renderStepContent = () => {
         const fe = fieldErrors;
         const tSx = inputSx;
         switch (currentStep) {
+
+            // ── Step 0: Parent (UPDATED) ─────────────────────────────────────
             case 0: return (
                 <Grid container spacing={2.5}>
+
+                    {/* ── Self toggle ── */}
                     <Grid item xs={12}>
-                        <FormControl fullWidth required error={!!fe.hierachy} sx={tSx}>
-                            <InputLabel>Hierarchy *</InputLabel>
-                            <Select value={vendorForm.hierachy} label="Hierarchy *" onChange={e => setField('hierachy', e.target.value)}>
-                                {getAllowedHierarchies().map(l => <MenuItem key={l} value={l}>{l.replace('_', ' ').toUpperCase()}</MenuItem>)}
+                        <Box sx={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            p: 2, borderRadius: 2, border: '2px solid',
+                            borderColor: isSelf ? '#1e3a8a' : '#e2e8f0',
+                            bgcolor: isSelf ? '#eff6ff' : '#f8faff',
+                            transition: 'all 0.25s ease', cursor: 'pointer',
+                        }} onClick={() => handleSelfToggle(!isSelf)}>
+                            <Stack direction="row" spacing={1.5} alignItems="center">
+                                <Avatar sx={{ width: 38, height: 38, bgcolor: isSelf ? '#1e3a8a' : '#e2e8f0', transition: 'all 0.25s' }}>
+                                    <Person sx={{ fontSize: 20, color: isSelf ? '#fff' : '#94a3b8' }} />
+                                </Avatar>
+                                <Box>
+                                    <Typography fontWeight={600} fontSize={14} color={isSelf ? '#1e3a8a' : 'text.primary'}>
+                                        Use Self as Parent
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                        Select yourself ({user?.related_vendor?.business_name || 'Me'}) as the parent vendor
+                                    </Typography>
+                                </Box>
+                            </Stack>
+                            <Checkbox
+                                checked={isSelf}
+                                onChange={e => { e.stopPropagation(); handleSelfToggle(e.target.checked); }}
+                                sx={{ color: '#1e3a8a', '&.Mui-checked': { color: '#1e3a8a' }, pointerEvents: 'none' }}
+                            />
+                        </Box>
+                    </Grid>
+
+                    {/* ── Divider ── */}
+                    <Grid item xs={12}>
+                        <Divider>
+                            <Typography variant="caption" color="text.secondary" px={1}>
+                                {isSelf ? 'Self selected — or uncheck to pick a vendor below' : 'Or select a related vendor as parent'}
+                            </Typography>
+                        </Divider>
+                    </Grid>
+
+                    {/* ── Related vendor dropdown ── */}
+                    <Grid item xs={12}>
+                        <FormControl fullWidth required error={!!fe.related_vendor} sx={tSx} disabled={isSelf}>
+                            <InputLabel>
+                                {vendorListLoading ? 'Loading vendors…' : 'Select Parent Vendor *'}
+                            </InputLabel>
+                            <Select
+                                value={isSelf ? String(user?.related_vendor?.id || '') : vendorForm.related_vendor}
+                                label={vendorListLoading ? 'Loading vendors…' : 'Select Parent Vendor *'}
+                                onChange={e => handleParentVendorChange(e.target.value)}
+                                startAdornment={vendorListLoading ? <CircularProgress size={16} sx={{ ml: 1, mr: 0.5 }} /> : undefined}
+                            >
+                                {/* Self option at top */}
+                                <MenuItem value={String(user?.related_vendor?.id || '')} sx={{ bgcolor: '#f0f9ff', fontWeight: 600 }}>
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                        <Person fontSize="small" sx={{ color: '#1e3a8a' }} />
+                                        <Box>
+                                            <Typography variant="body2" fontWeight={700} color="#1e3a8a">
+                                                {user?.related_vendor?.business_name || 'Me (Self)'}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                                Self · {user?.related_vendor?.hierachy || 'vendor'}
+                                            </Typography>
+                                        </Box>
+                                        <Chip label="Self" size="small" color="primary" sx={{ ml: 'auto', height: 18, fontSize: 10 }} />
+                                    </Stack>
+                                </MenuItem>
+
+                                {/* Divider between self and other vendors */}
+                                {relatedVendorList.length > 0 && (
+                                    <MenuItem disabled sx={{ py: 0.5, minHeight: 'auto', opacity: 1 }}>
+                                        <Divider sx={{ width: '100%' }} />
+                                    </MenuItem>
+                                )}
+
+                                {/* All related vendors */}
+                                {relatedVendorList.map(v => (
+                                    <MenuItem key={v.id} value={String(v.id)}>
+                                        <Stack direction="row" spacing={1.5} alignItems="center" width="100%">
+                                            <Avatar sx={{ width: 32, height: 32, bgcolor: `${levelColor(v.hierachy)}.light`, color: `${levelColor(v.hierachy)}.main`, fontSize: 12, fontWeight: 700 }}>
+                                                {v.business_name.charAt(0)}
+                                            </Avatar>
+                                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                                                <Typography variant="body2" fontWeight={600} noWrap>{v.business_name}</Typography>
+                                                <Typography variant="caption" color="text.secondary" noWrap>{v.email}</Typography>
+                                            </Box>
+                                            <Stack direction="row" spacing={0.5} alignItems="center" flexShrink={0}>
+                                                <Chip label={levelLabel(v.hierachy)} size="small" color={levelColor(v.hierachy)} variant="outlined" sx={{ height: 18, fontSize: 10 }} />
+                                                <Chip label={v.account_status} size="small" color={statusColor(v.account_status)} sx={{ height: 18, fontSize: 10 }} />
+                                            </Stack>
+                                        </Stack>
+                                    </MenuItem>
+                                ))}
+
+                                {relatedVendorList.length === 0 && !vendorListLoading && (
+                                    <MenuItem disabled>
+                                        <Typography variant="body2" color="text.secondary" fontStyle="italic">
+                                            No related vendors found
+                                        </Typography>
+                                    </MenuItem>
+                                )}
                             </Select>
-                            {fe.hierachy && <FormHelperText>{fe.hierachy}</FormHelperText>}
+                            {fe.related_vendor && <FormHelperText>{fe.related_vendor}</FormHelperText>}
                         </FormControl>
                     </Grid>
+
+                    {/* ── Selected parent summary card ── */}
+                    {selectedParentVendor && (
+                        <Grid item xs={12}>
+                            <Box sx={{
+                                p: 2, borderRadius: 2, bgcolor: '#f0fdf4',
+                                border: '1px solid #bbf7d0', display: 'flex',
+                                alignItems: 'center', gap: 1.5,
+                            }}>
+                                <CheckCircle sx={{ color: '#16a34a', fontSize: 20, flexShrink: 0 }} />
+                                <Box>
+                                    <Typography variant="body2" fontWeight={700} color="#15803d">
+                                        {selectedParentVendor.business_name}
+                                        {isSelf && ' (Self)'}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                        Hierarchy: <strong>{levelLabel(selectedParentVendor.hierachy)}</strong>
+                                        {' · '}Can create: <strong>{allowedHierarchies.map(h => levelLabel(h)).join(', ') || 'None'}</strong>
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        </Grid>
+                    )}
+
+                    {/* ── Hierarchy dropdown (unlocked after parent selected) ── */}
                     <Grid item xs={12}>
-                        <TextField fullWidth label="Related Vendor ID (auto-filled)" value={user?.related_vendor?.id || ''} disabled sx={tSx}
-                            helperText="Automatically set to your vendor ID" />
+                        <FormControl
+                            fullWidth required
+                            error={!!fe.hierachy}
+                            disabled={!selectedParentVendor || allowedHierarchies.length === 0}
+                            sx={tSx}
+                        >
+                            <InputLabel>
+                                {!selectedParentVendor
+                                    ? 'Select a parent vendor first'
+                                    : allowedHierarchies.length === 0
+                                        ? 'No child hierarchy available'
+                                        : 'New Vendor Hierarchy *'}
+                            </InputLabel>
+                            <Select
+                                value={vendorForm.hierachy}
+                                label={!selectedParentVendor ? 'Select a parent vendor first' : 'New Vendor Hierarchy *'}
+                                onChange={e => setField('hierachy', e.target.value)}
+                            >
+                                {allowedHierarchies.map(h => (
+                                    <MenuItem key={h} value={h}>
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                            <Chip label={levelLabel(h)} size="small" color={levelColor(h)} variant="outlined" sx={{ height: 20, fontSize: 11 }} />
+                                            <Typography variant="body2">{levelLabel(h)}</Typography>
+                                        </Stack>
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                            {fe.hierachy && <FormHelperText>{fe.hierachy}</FormHelperText>}
+                            {!selectedParentVendor && (
+                                <FormHelperText sx={{ color: '#94a3b8' }}>
+                                    Hierarchy options will appear after you select a parent vendor above
+                                </FormHelperText>
+                            )}
+                        </FormControl>
                     </Grid>
                 </Grid>
             );
+
+            // ── Step 1: Basic ────────────────────────────────────────────────
             case 1: return (
                 <Grid container spacing={2.5}>
                     <Grid item xs={12}>
@@ -544,6 +745,8 @@ const VendorManagement: React.FC = () => {
                     </Grid>
                 </Grid>
             );
+
+            // ── Step 2: Profile ──────────────────────────────────────────────
             case 2: return (
                 <Grid container spacing={2.5}>
                     <Grid item xs={12}><TextField fullWidth required label="Address *" value={vendorForm.address} error={!!fe.address} helperText={fe.address} onChange={e => setField('address', e.target.value)} sx={tSx} /></Grid>
@@ -562,6 +765,8 @@ const VendorManagement: React.FC = () => {
                     <Grid item xs={12}><TextField fullWidth multiline rows={3} label="Description" value={vendorForm.description} onChange={e => setField('description', e.target.value)} sx={tSx} /></Grid>
                 </Grid>
             );
+
+            // ── Step 3: KYC ──────────────────────────────────────────────────
             case 3: return (
                 <Grid container spacing={2.5}>
                     <Grid item xs={12} md={6}><TextField fullWidth label="Owner Name" value={vendorForm.owner_name} onChange={e => setField('owner_name', e.target.value)} sx={tSx} /></Grid>
@@ -583,6 +788,8 @@ const VendorManagement: React.FC = () => {
                     <Grid item xs={12} md={4}><TextField fullWidth label="Account Number" value={vendorForm.account_number} onChange={e => setField('account_number', e.target.value)} sx={tSx} /></Grid>
                 </Grid>
             );
+
+            // ── Step 4: Controls ─────────────────────────────────────────────
             case 4: return (
                 <Grid container spacing={2.5}>
                     <Grid item xs={12} md={6}><TextField fullWidth label="Funding Cap (₦)" type="number" value={vendorForm.funding_cap} onChange={e => setField('funding_cap', e.target.value)} helperText="Max wallet funding" sx={tSx} /></Grid>
@@ -592,6 +799,8 @@ const VendorManagement: React.FC = () => {
                     <Grid item xs={12}><Box sx={{ p: 2, bgcolor: '#f0f7ff', borderRadius: 2, border: '1px solid #bfdbfe' }}><Typography variant="body2" color="primary.main" fontWeight={600}>Leave empty to inherit parent defaults</Typography></Box></Grid>
                 </Grid>
             );
+
+            // ── Step 5: Agreement ────────────────────────────────────────────
             case 5: return (
                 <Grid container spacing={2.5}>
                     <Grid item xs={12} md={6}><TextField fullWidth label="Entity Name" value={vendorForm.entity_name} onChange={e => setField('entity_name', e.target.value)} sx={tSx} /></Grid>
@@ -604,6 +813,7 @@ const VendorManagement: React.FC = () => {
                     <Grid item xs={12}><Box sx={{ p: 2.5, bgcolor: '#f0fdf4', borderRadius: 2, border: '1px solid #bbf7d0' }}><Typography variant="body2" color="success.main" fontWeight={600}>Ready to Create — all required fields must be filled.</Typography></Box></Grid>
                 </Grid>
             );
+
             default: return null;
         }
     };
@@ -612,73 +822,46 @@ const VendorManagement: React.FC = () => {
     const renderConfigTab = () => {
         const tSx = { ...inputSx, mb: 0 };
         switch (configTab) {
-            case 0: return ( // Commission
+            case 0: return (
                 <Stack spacing={2.5} pt={1}>
                     <Typography variant="body2" color="text.secondary">Set the commission rate for this vendor. Leave blank to inherit from parent.</Typography>
-                    <TextField fullWidth label="Commission Rate (%)" type="number" placeholder="e.g. 2.5"
-                        value={configForm.commission_rate || ''} sx={tSx}
-                        onChange={e => setConfigForm(p => ({ ...p, commission_rate: e.target.value }))} />
+                    <TextField fullWidth label="Commission Rate (%)" type="number" placeholder="e.g. 2.5" value={configForm.commission_rate || ''} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, commission_rate: e.target.value }))} />
                 </Stack>
             );
-            case 1: return ( // Vol. Targets
+            case 1: return (
                 <Stack spacing={2.5} pt={1}>
                     <Typography variant="body2" color="text.secondary">Configure volume targets and funding limits.</Typography>
-                    <TextField fullWidth label="Monthly Target (₦)" type="number" value={configForm.monthly_target || ''} sx={tSx}
-                        onChange={e => setConfigForm(p => ({ ...p, monthly_target: e.target.value }))} />
-                    <TextField fullWidth label="Funding Cap (₦)" type="number" value={configForm.funding_cap || ''} sx={tSx}
-                        onChange={e => setConfigForm(p => ({ ...p, funding_cap: e.target.value }))} />
-                    <TextField fullWidth label="Transaction Max (₦)" type="number" value={configForm.transaction_max || ''} sx={tSx}
-                        onChange={e => setConfigForm(p => ({ ...p, transaction_max: e.target.value }))} />
+                    <TextField fullWidth label="Monthly Target (₦)" type="number" value={configForm.monthly_target || ''} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, monthly_target: e.target.value }))} />
+                    <TextField fullWidth label="Funding Cap (₦)" type="number" value={configForm.funding_cap || ''} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, funding_cap: e.target.value }))} />
+                    <TextField fullWidth label="Transaction Max (₦)" type="number" value={configForm.transaction_max || ''} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, transaction_max: e.target.value }))} />
                 </Stack>
             );
-            case 2: return ( // Enable / Disable
+            case 2: return (
                 <Stack spacing={2} pt={1}>
                     <Typography variant="body2" color="text.secondary">Control vendor feature flags and access.</Typography>
-                    {[
-                        { label: 'Enable API Access', key: 'enable_api_access', desc: 'Allow this vendor to access the API' },
-                    ].map(item => (
-                        <Stack key={item.key} direction="row" justifyContent="space-between" alignItems="center"
-                            sx={{ p: 2, bgcolor: '#f3f4f8', borderRadius: 2, border: '1px solid #e2e8f0' }}>
-                            <Box>
-                                <Typography fontWeight={500} fontSize={14}>{item.label}</Typography>
-                                <Typography variant="caption" color="text.secondary">{item.desc}</Typography>
-                            </Box>
-                            <Switch checked={Boolean((configForm as any)[item.key])}
-                                onChange={e => setConfigForm(p => ({ ...p, [item.key]: e.target.checked }))} />
-                        </Stack>
-                    ))}
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 2, bgcolor: '#f3f4f8', borderRadius: 2, border: '1px solid #e2e8f0' }}>
+                        <Box><Typography fontWeight={500} fontSize={14}>Enable API Access</Typography><Typography variant="caption" color="text.secondary">Allow this vendor to access the API</Typography></Box>
+                        <Switch checked={Boolean(configForm.enable_api_access)} onChange={e => setConfigForm(p => ({ ...p, enable_api_access: e.target.checked }))} />
+                    </Stack>
                 </Stack>
             );
-            case 3: return ( // API & Rate Limit
+            case 3: return (
                 <Stack spacing={2.5} pt={1}>
-                    <Box>
-                        <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>API ACCESS</Typography>
-                    </Box>
-                    {/* API Key (masked, copy/regenerate) */}
+                    <Box><Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>API ACCESS</Typography></Box>
                     <Box>
                         <Typography variant="body2" mb={0.75} fontWeight={500}>API key</Typography>
                         <Stack direction="row" spacing={1} alignItems="center">
-                            <TextField fullWidth size="small" value="sk-••••••••••••••••••••••••••••••" disabled
-                                sx={{ ...tSx, '& .MuiOutlinedInput-input': { fontFamily: 'monospace', letterSpacing: 2, bgcolor: 'transparent' } }} />
-                            <IconButton size="small" title="Copy" sx={{ border: '1px solid #e2e8f0', borderRadius: 1.5 }}>
-                                <ContentCopy fontSize="small" />
-                            </IconButton>
-                            <IconButton size="small" title="Regenerate" sx={{ border: '1px solid #e2e8f0', borderRadius: 1.5 }}>
-                                <RotateRight fontSize="small" />
-                            </IconButton>
+                            <TextField fullWidth size="small" value="sk-••••••••••••••••••••••••••••••" disabled sx={{ ...tSx, '& .MuiOutlinedInput-input': { fontFamily: 'monospace', letterSpacing: 2, bgcolor: 'transparent' } }} />
+                            <IconButton size="small" title="Copy" sx={{ border: '1px solid #e2e8f0', borderRadius: 1.5 }}><ContentCopy fontSize="small" /></IconButton>
+                            <IconButton size="small" title="Regenerate" sx={{ border: '1px solid #e2e8f0', borderRadius: 1.5 }}><RotateRight fontSize="small" /></IconButton>
                         </Stack>
                     </Box>
-                    <TextField fullWidth label="Requests per minute" type="number" value={configForm.api_rate_limit_per_minute || '60'} sx={tSx}
-                        onChange={e => setConfigForm(p => ({ ...p, api_rate_limit_per_minute: e.target.value }))} />
-                    <TextField fullWidth label="Requests per day" type="number" value={configForm.api_rate_limit_per_day || '20000'} sx={tSx}
-                        onChange={e => setConfigForm(p => ({ ...p, api_rate_limit_per_day: e.target.value }))} />
-                    <TextField fullWidth label="Webhook URL" placeholder="https://your-domain.com/webhook" value={configForm.webhook_url || ''} sx={tSx}
-                        onChange={e => setConfigForm(p => ({ ...p, webhook_url: e.target.value }))} />
-                    <Stack direction="row" justifyContent="space-between" alignItems="center"
-                        sx={{ p: 2, bgcolor: '#f3f4f8', borderRadius: 2, border: '1px solid #e2e8f0' }}>
+                    <TextField fullWidth label="Requests per minute" type="number" value={configForm.api_rate_limit_per_minute || '60'} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, api_rate_limit_per_minute: e.target.value }))} />
+                    <TextField fullWidth label="Requests per day" type="number" value={configForm.api_rate_limit_per_day || '20000'} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, api_rate_limit_per_day: e.target.value }))} />
+                    <TextField fullWidth label="Webhook URL" placeholder="https://your-domain.com/webhook" value={configForm.webhook_url || ''} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, webhook_url: e.target.value }))} />
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 2, bgcolor: '#f3f4f8', borderRadius: 2, border: '1px solid #e2e8f0' }}>
                         <Typography fontWeight={500} fontSize={14}>Enable API access</Typography>
-                        <Switch checked={Boolean(configForm.enable_api_access)}
-                            onChange={e => setConfigForm(p => ({ ...p, enable_api_access: e.target.checked }))} />
+                        <Switch checked={Boolean(configForm.enable_api_access)} onChange={e => setConfigForm(p => ({ ...p, enable_api_access: e.target.checked }))} />
                     </Stack>
                 </Stack>
             );
@@ -686,21 +869,15 @@ const VendorManagement: React.FC = () => {
         }
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════════
     // RENDER
-    // ─────────────────────────────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════════
     return (
         <Box p={{ xs: 2, md: 3 }} sx={{
-            '@keyframes tableSlideIn': { from: { opacity: 0, transform: 'translateX(-28px)' }, to: { opacity: 1, transform: 'translateX(0)' } },
-            '@keyframes detailSlideIn': { from: { opacity: 0, transform: 'translateX(36px)' }, to: { opacity: 1, transform: 'translateX(0)' } },
-            // POP scale pulse animation
-            '@keyframes chipPop': {
-                '0%, 100%': { transform: 'scale(1)' },
-                '40%': { transform: 'scale(1.14)' },
-                '60%': { transform: 'scale(0.96)' },
-            },
+            '@keyframes tableSlideIn':  { from: { opacity: 0, transform: 'translateX(-28px)' }, to: { opacity: 1, transform: 'translateX(0)' } },
+            '@keyframes detailSlideIn': { from: { opacity: 0, transform: 'translateX(36px)'  }, to: { opacity: 1, transform: 'translateX(0)' } },
+            '@keyframes chipPop': { '0%, 100%': { transform: 'scale(1)' }, '40%': { transform: 'scale(1.14)' }, '60%': { transform: 'scale(0.96)' } },
         }}>
-
             {/* ── Page header ── */}
             <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} spacing={2} mb={3}>
                 <Box>
@@ -721,26 +898,16 @@ const VendorManagement: React.FC = () => {
 
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-            {/* ── Stat cards — dynamic when filter active ── */}
+            {/* ── Stat cards ── */}
             <Grid container spacing={2} mb={3} sx={{ transition: 'all 0.4s ease' }}>
                 {filteredStats ? (
-                    // filtered view — 4 cards showing filtered group stats
                     <>
-                        <Grid item xs={12} md={3}>
-                            <StatCard title={`Total ${statFilter?.replace('_', ' ')} vendors`} value={formatNumber(filteredStats.total)} icon={<People />} color="primary" subtitle="in current filter" />
-                        </Grid>
-                        <Grid item xs={12} md={3}>
-                            <StatCard title="Total Active" value={formatNumber(filteredStats.active)} icon={<CheckCircle />} color="success" subtitle={`${Math.round((filteredStats.active / Math.max(filteredStats.total, 1)) * 100)}% of group`} />
-                        </Grid>
-                        <Grid item xs={12} md={3}>
-                            <StatCard title="Total Inactive" value={formatNumber(filteredStats.inactive)} icon={<TrendingDown />} color="error" subtitle="inactive / suspended" />
-                        </Grid>
-                        <Grid item xs={12} md={3}>
-                            <StatCard title="Group Balance" value={formatCurrency(filteredStats.balance)} icon={<AccountBalance />} color="info" subtitle="combined wallet balance" />
-                        </Grid>
+                        <Grid item xs={12} md={3}><StatCard title={`Total ${statFilter?.replace('_', ' ')} vendors`} value={formatNumber(filteredStats.total)} icon={<People />} color="primary" subtitle="in current filter" /></Grid>
+                        <Grid item xs={12} md={3}><StatCard title="Total Active" value={formatNumber(filteredStats.active)} icon={<CheckCircle />} color="success" subtitle={`${Math.round((filteredStats.active / Math.max(filteredStats.total, 1)) * 100)}% of group`} /></Grid>
+                        <Grid item xs={12} md={3}><StatCard title="Total Inactive" value={formatNumber(filteredStats.inactive)} icon={<TrendingDown />} color="error" subtitle="inactive / suspended" /></Grid>
+                        <Grid item xs={12} md={3}><StatCard title="Group Balance" value={formatCurrency(filteredStats.balance)} icon={<AccountBalance />} color="info" subtitle="combined wallet balance" /></Grid>
                     </>
                 ) : (
-                    // default API analytics
                     <>
                         <Grid item xs={12} md={3}><StatCard title="Today's Volume" value={formatCurrency(analytics.processed_today)} icon={<Business />} color="primary" /></Grid>
                         <Grid item xs={12} md={3}><StatCard title="Active Vendors" value={formatNumber(analytics.active)} icon={<CheckCircle />} color="success" /></Grid>
@@ -779,15 +946,11 @@ const VendorManagement: React.FC = () => {
                                     </FormControl>
                                 </Grid>
                                 <Grid item xs={12} md={2}>
-                                    <TextField fullWidth size="small" type="date" label="Start Date" value={startDate}
-                                        onChange={e => { setStartDate(e.target.value); setPage(0); }} InputLabelProps={{ shrink: true }} sx={inputSx} />
+                                    <TextField fullWidth size="small" type="date" label="Start Date" value={startDate} onChange={e => { setStartDate(e.target.value); setPage(0); }} InputLabelProps={{ shrink: true }} sx={inputSx} />
                                 </Grid>
                                 <Grid item xs={12} md={2}>
-                                    <TextField fullWidth size="small" type="date" label="End Date" value={endDate}
-                                        onChange={e => { setEndDate(e.target.value); setPage(0); }} InputLabelProps={{ shrink: true }} sx={inputSx} />
+                                    <TextField fullWidth size="small" type="date" label="End Date" value={endDate} onChange={e => { setEndDate(e.target.value); setPage(0); }} InputLabelProps={{ shrink: true }} sx={inputSx} />
                                 </Grid>
-
-                                {/* ── Clickable pop chips (vendor removed) ── */}
                                 <Grid item xs={12}>
                                     <Stack direction="row" spacing={2} flexWrap="wrap" alignItems="center">
                                         <Tooltip title="Filter by active status" arrow><span><StatFilterChip label="active" filterKey="active" count={stats.active} /></span></Tooltip>
@@ -798,11 +961,7 @@ const VendorManagement: React.FC = () => {
                                         {statFilter && <Button size="small" onClick={() => { setStatFilter(null); setPage(0); }} sx={{ color: '#64748b', fontSize: 11 }}>Clear ×</Button>}
                                         <Button size="small" onClick={resetFilters} sx={{ ml: 'auto' }}>Reset All</Button>
                                     </Stack>
-                                    {statFilter && (
-                                        <Typography variant="caption" color="primary.main" sx={{ mt: 0.5, display: 'block', fontWeight: 600 }}>
-                                            Showing {filteredVendors.length} result{filteredVendors.length !== 1 ? 's' : ''} · {statFilter.replace('_', ' ')} filter active
-                                        </Typography>
-                                    )}
+                                    {statFilter && <Typography variant="caption" color="primary.main" sx={{ mt: 0.5, display: 'block', fontWeight: 600 }}>Showing {filteredVendors.length} result{filteredVendors.length !== 1 ? 's' : ''} · {statFilter.replace('_', ' ')} filter active</Typography>}
                                 </Grid>
                             </Grid>
                         </CardContent>
@@ -812,31 +971,20 @@ const VendorManagement: React.FC = () => {
                         <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} mb={2}>
                             <Stack direction="row" spacing={1.5} alignItems="center">
                                 <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main' }}><Domain /></Avatar>
-                                <Box>
-                                    <Typography variant="h6">Vendors</Typography>
-                                    <Typography variant="body2" color="text.secondary">Click any row for full management details</Typography>
-                                </Box>
+                                <Box><Typography variant="h6">Vendors</Typography><Typography variant="body2" color="text.secondary">Click any row for full management details</Typography></Box>
                             </Stack>
                             <Stack direction="row" spacing={1} alignItems="center">
                                 {loading && <CircularProgress size={22} />}
-                                <Button variant="contained" color="primary" startIcon={<Business />} onClick={() => setCreateVendorOpen(true)}>
-                                    Create Children
-                                </Button>
+                                <Button variant="contained" color="primary" startIcon={<Business />} onClick={() => setCreateVendorOpen(true)}>Create Children</Button>
                             </Stack>
                         </Stack>
-
                         <Box sx={{ overflowX: 'auto' }}>
                             <Table size="small">
                                 <TableHead>
                                     <TableRow>
-                                        <TableCell>Business</TableCell>
-                                        <TableCell>Hierarchy</TableCell>
-                                        <TableCell>Status</TableCell>
-                                        <TableCell>Contact</TableCell>
-                                        <TableCell>Location</TableCell>
-                                        <TableCell>Wallet</TableCell>
-                                        <TableCell>Created</TableCell>
-                                        <TableCell align="right">Action</TableCell>
+                                        <TableCell>Business</TableCell><TableCell>Hierarchy</TableCell><TableCell>Status</TableCell>
+                                        <TableCell>Contact</TableCell><TableCell>Location</TableCell><TableCell>Wallet</TableCell>
+                                        <TableCell>Created</TableCell><TableCell align="right">Action</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -844,35 +992,17 @@ const VendorManagement: React.FC = () => {
                                         <TableRow><TableCell colSpan={8} align="center" sx={{ py: 5, color: 'text.secondary' }}>{loading ? 'Loading…' : 'No vendors found'}</TableCell></TableRow>
                                     ) : paginatedVendors.map(vendor => (
                                         <TableRow key={vendor.id} hover sx={{ cursor: 'pointer' }} onClick={() => handleSelectVendor(vendor)}>
-                                            <TableCell>
-                                                <Stack spacing={0.25}>
-                                                    <Typography variant="subtitle2">{vendor.business_name}</Typography>
-                                                    <Typography variant="caption" color="text.secondary">Parent: {vendor.related_vendor?.business_name || 'None'}</Typography>
-                                                </Stack>
-                                            </TableCell>
+                                            <TableCell><Stack spacing={0.25}><Typography variant="subtitle2">{vendor.business_name}</Typography><Typography variant="caption" color="text.secondary">Parent: {vendor.related_vendor?.business_name || 'None'}</Typography></Stack></TableCell>
                                             <TableCell><Chip label={levelLabel(vendor.hierachy)} size="small" color={levelColor(vendor.hierachy)} variant="outlined" /></TableCell>
                                             <TableCell><Chip label={vendor.account_status} size="small" color={statusColor(vendor.account_status)} /></TableCell>
-                                            <TableCell>
-                                                <Typography variant="body2">{vendor.email}</Typography>
-                                                <Typography variant="caption" color="text.secondary">{vendor.phone_number}</Typography>
-                                            </TableCell>
+                                            <TableCell><Typography variant="body2">{vendor.email}</Typography><Typography variant="caption" color="text.secondary">{vendor.phone_number}</Typography></TableCell>
                                             <TableCell>{getLocation(vendor)}</TableCell>
-                                            <TableCell>
-                                                <Typography variant="subtitle2">{formatCurrency(getWalletBalance(vendor))}</Typography>
-                                                <Typography variant="caption" color="text.secondary">{getWalletTypeName(vendor)}</Typography>
-                                            </TableCell>
+                                            <TableCell><Typography variant="subtitle2">{formatCurrency(getWalletBalance(vendor))}</Typography><Typography variant="caption" color="text.secondary">{getWalletTypeName(vendor)}</Typography></TableCell>
                                             <TableCell>{formatDate(vendor.created_at)}</TableCell>
                                             <TableCell align="right">
                                                 <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                                                    <Button size="small" endIcon={<ArrowForward />}
-                                                        onClick={e => { e.stopPropagation(); handleSelectVendor(vendor); }}>
-                                                        View
-                                                    </Button>
-                                                    <Button size="small" variant="outlined" startIcon={<Settings fontSize="small" />}
-                                                        sx={{ borderRadius: 1.5, textTransform: 'none', fontSize: 12 }}
-                                                        onClick={e => { e.stopPropagation(); openConfig(vendor); }}>
-                                                        Config
-                                                    </Button>
+                                                    <Button size="small" endIcon={<ArrowForward />} onClick={e => { e.stopPropagation(); handleSelectVendor(vendor); }}>View</Button>
+                                                    <Button size="small" variant="outlined" startIcon={<Settings fontSize="small" />} sx={{ borderRadius: 1.5, textTransform: 'none', fontSize: 12 }} onClick={e => { e.stopPropagation(); openConfig(vendor); }}>Config</Button>
                                                 </Stack>
                                             </TableCell>
                                         </TableRow>
@@ -880,22 +1010,15 @@ const VendorManagement: React.FC = () => {
                                 </TableBody>
                             </Table>
                         </Box>
-                        <TablePagination component="div" count={filteredVendors.length} page={page}
-                            onPageChange={(_, p) => setPage(p)} rowsPerPage={rowsPerPage}
-                            onRowsPerPageChange={e => { setRowsPerPage(Number(e.target.value)); setPage(0); }}
-                            rowsPerPageOptions={[5, 8, 12, 20, 50]} />
+                        <TablePagination component="div" count={filteredVendors.length} page={page} onPageChange={(_, p) => setPage(p)} rowsPerPage={rowsPerPage} onRowsPerPageChange={e => { setRowsPerPage(Number(e.target.value)); setPage(0); }} rowsPerPageOptions={[5, 8, 12, 20, 50]} />
                     </Paper>
                 </Box>
             ) : (
                 <Box id="vendor-detail-panel" key={selectedVendor.id} sx={{ animation: 'detailSlideIn 380ms ease' }}>
                     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} spacing={2} mb={2}>
-                        <Box>
-                            <Typography variant="h6">Selected Vendor Details</Typography>
-                            <Typography variant="body2" color="text.secondary">{selectedVendor.business_name}</Typography>
-                        </Box>
+                        <Box><Typography variant="h6">Selected Vendor Details</Typography><Typography variant="body2" color="text.secondary">{selectedVendor.business_name}</Typography></Box>
                         <Stack direction="row" spacing={1}>
-                            <Button variant="outlined" startIcon={<Settings />}
-                                onClick={() => openConfig(selectedVendor)}>Configuration</Button>
+                            <Button variant="outlined" startIcon={<Settings />} onClick={() => openConfig(selectedVendor)}>Configuration</Button>
                             <Button variant="outlined" startIcon={<ArrowBack />} onClick={() => setSelectedVendor(null)}>Back</Button>
                         </Stack>
                     </Stack>
@@ -920,8 +1043,7 @@ const VendorManagement: React.FC = () => {
                                                     <Chip label={getLocation(selectedVendor)} variant="outlined" />
                                                 </Stack>
                                             </Stack>
-                                            <Button variant="contained" color="error" sx={{ height: 36, textTransform: 'none', borderRadius: 2 }}
-                                                startIcon={<Delete />} onClick={() => handleDeleteVendor(selectedVendor.id)}>Delete</Button>
+                                            <Button variant="contained" color="error" sx={{ height: 36, textTransform: 'none', borderRadius: 2 }} startIcon={<Delete />} onClick={() => handleDeleteVendor(selectedVendor.id)}>Delete</Button>
                                         </Stack>
                                         <Grid container spacing={2}>
                                             <Grid item xs={12} md={6}><Typography variant="body2" color="text.secondary">Phone</Typography><Typography>{selectedVendor.phone_number || 'N/A'}</Typography></Grid>
@@ -943,7 +1065,6 @@ const VendorManagement: React.FC = () => {
                                         </Collapse>
                                     </CardContent>
                                 </Card>
-
                                 <Card sx={{ borderRadius: 2 }}>
                                     <CardContent>
                                         <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
@@ -951,44 +1072,26 @@ const VendorManagement: React.FC = () => {
                                             {transactionLoading && <CircularProgress size={22} />}
                                         </Stack>
                                         <Grid container spacing={2} mb={2}>
-                                            <Grid item xs={12} md={4}>
-                                                <TextField fullWidth size="small" placeholder="Search transaction" value={transactionSearch}
-                                                    onChange={e => { setTransactionSearch(e.target.value); setTransactionPage(0); }} sx={inputSx}
-                                                    InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }} />
-                                            </Grid>
+                                            <Grid item xs={12} md={4}><TextField fullWidth size="small" placeholder="Search transaction" value={transactionSearch} onChange={e => { setTransactionSearch(e.target.value); setTransactionPage(0); }} sx={inputSx} InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }} /></Grid>
                                             <Grid item xs={12} md={3}><TextField fullWidth size="small" type="date" label="Start" value={transactionStartDate} onChange={e => { setTransactionStartDate(e.target.value); setTransactionPage(0); }} InputLabelProps={{ shrink: true }} sx={inputSx} /></Grid>
                                             <Grid item xs={12} md={3}><TextField fullWidth size="small" type="date" label="End" value={transactionEndDate} onChange={e => { setTransactionEndDate(e.target.value); setTransactionPage(0); }} InputLabelProps={{ shrink: true }} sx={inputSx} /></Grid>
                                         </Grid>
                                         <Divider sx={{ mb: 2 }} />
                                         <Box sx={{ overflowX: 'auto' }}>
                                             <Table size="small">
-                                                <TableHead>
-                                                    <TableRow>
-                                                        <TableCell>Reference</TableCell>
-                                                        <TableCell>Status</TableCell>
-                                                        <TableCell align="right">Amount</TableCell>
-                                                        <TableCell>Date</TableCell>
-                                                    </TableRow>
-                                                </TableHead>
+                                                <TableHead><TableRow><TableCell>Reference</TableCell><TableCell>Status</TableCell><TableCell align="right">Amount</TableCell><TableCell>Date</TableCell></TableRow></TableHead>
                                                 <TableBody>
                                                     {selectedTransactions.map(t => (
                                                         <TableRow key={t.transaction_ref} hover>
                                                             <TableCell>{t.transaction_ref}</TableCell>
                                                             <TableCell><Chip label={t.status || 'success'} size="small" color={t.status === 'failed' ? 'error' : t.status === 'pending' ? 'warning' : 'success'} /></TableCell>
-                                                            <TableCell align="right">
-                                                                <Typography fontWeight={700} sx={{ color: t.transaction_type === 'debit' ? 'error.main' : 'success.main' }}>
-                                                                    {t.transaction_type === 'debit' ? '- ' : '+ '}{formatCurrency(t.amount)}
-                                                                </Typography>
-                                                            </TableCell>
+                                                            <TableCell align="right"><Typography fontWeight={700} sx={{ color: t.transaction_type === 'debit' ? 'error.main' : 'success.main' }}>{t.transaction_type === 'debit' ? '- ' : '+ '}{formatCurrency(t.amount)}</Typography></TableCell>
                                                             <TableCell>{formatDateTime(t.timestamp)}</TableCell>
                                                         </TableRow>
                                                     ))}
                                                 </TableBody>
                                             </Table>
-                                            <TablePagination component="div" count={selectedTransactionCount} page={transactionPage}
-                                                onPageChange={(_, p) => setTransactionPage(p)} rowsPerPage={transactionRowsPerPage}
-                                                onRowsPerPageChange={e => { setTransactionRowsPerPage(Number(e.target.value)); setTransactionPage(0); }}
-                                                rowsPerPageOptions={[5, 10, 20]} />
+                                            <TablePagination component="div" count={selectedTransactionCount} page={transactionPage} onPageChange={(_, p) => setTransactionPage(p)} rowsPerPage={transactionRowsPerPage} onRowsPerPageChange={e => { setTransactionRowsPerPage(Number(e.target.value)); setTransactionPage(0); }} rowsPerPageOptions={[5, 10, 20]} />
                                         </Box>
                                     </CardContent>
                                 </Card>
@@ -1002,8 +1105,7 @@ const VendorManagement: React.FC = () => {
                                         {detailLoading && <CircularProgress size={22} />}
                                     </Stack>
                                     <Paper variant="outlined" sx={{ maxHeight: 340, overflow: 'auto', borderRadius: 1 }}>
-                                        {selectedVendorTree.length ? renderVendorTree(selectedVendorTree) :
-                                            <Box p={2}><Typography color="text.secondary">No child vendors found.</Typography></Box>}
+                                        {selectedVendorTree.length ? renderVendorTree(selectedVendorTree) : <Box p={2}><Typography color="text.secondary">No child vendors found.</Typography></Box>}
                                     </Paper>
                                 </CardContent>
                             </Card>
@@ -1016,19 +1118,13 @@ const VendorManagement: React.FC = () => {
                 <Paper sx={{ p: 1.5, bgcolor: 'success.main', color: 'success.contrastText' }}>{success}</Paper>
             </Snackbar>
 
-            {/* ══════════════════════════════════════════════════════════════
-                STEP WIZARD DIALOG
-            ══════════════════════════════════════════════════════════════ */}
-            <Dialog open={createVendorOpen} onClose={handleCloseDialog} maxWidth="md" fullWidth
-                PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
-                {/* Header */}
+            {/* ══════════ WIZARD ══════════ */}
+            <Dialog open={createVendorOpen} onClose={handleCloseDialog} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
                 <Box sx={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', px: 3, pt: 3, pb: 0, color: '#fff' }}>
                     <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={1.5}>
                         <Box>
                             <Typography variant="h6" fontWeight={700} color="#fff">Create new vendor</Typography>
-                            <Typography variant="body2" sx={{ color: '#93c5fd', mt: 0.25 }}>
-                                Step {currentStep + 1} of {STEP_LABELS.length} — {STEP_SUBTITLES[currentStep]}
-                            </Typography>
+                            <Typography variant="body2" sx={{ color: '#93c5fd', mt: 0.25 }}>Step {currentStep + 1} of {STEP_LABELS.length} — {STEP_SUBTITLES[currentStep]}</Typography>
                         </Box>
                         <IconButton onClick={handleCloseDialog} size="small" sx={{ color: '#93c5fd', '&:hover': { color: '#fff' } }}><Close fontSize="small" /></IconButton>
                     </Stack>
@@ -1050,7 +1146,7 @@ const VendorManagement: React.FC = () => {
                         })}
                     </Box>
                 </Box>
-                <DialogContent sx={{ p: 3, maxHeight: '52vh', overflowY: 'auto' }}>
+                <DialogContent sx={{ p: 3, maxHeight: '58vh', overflowY: 'auto' }}>
                     {dialogError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDialogError(null)}>{dialogError}</Alert>}
                     {renderStepContent()}
                 </DialogContent>
@@ -1069,77 +1165,35 @@ const VendorManagement: React.FC = () => {
                 </Box>
             </Dialog>
 
-            {/* ══════════════════════════════════════════════════════════════
-                CONFIGURATION SLIDE PANEL (Drawer from right)
-            ══════════════════════════════════════════════════════════════ */}
-            <Drawer
-                anchor="right"
-                open={Boolean(configVendor)}
-                onClose={closeConfig}
-                PaperProps={{
-                    sx: {
-                        width: { xs: '100vw', sm: 440 },
-                        borderRadius: '16px 0 0 16px',
-                        overflow: 'hidden',
-                        boxShadow: '-8px 0 40px rgba(0,0,0,0.18)',
-                    },
-                }}
-                SlideProps={{ direction: 'left' }}
-            >
+            {/* ══════════ CONFIG DRAWER ══════════ */}
+            <Drawer anchor="right" open={Boolean(configVendor)} onClose={closeConfig}
+                PaperProps={{ sx: { width: { xs: '100vw', sm: 440 }, borderRadius: '16px 0 0 16px', overflow: 'hidden', boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' } }}>
                 {configVendor && (
                     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                        {/* Panel header — dark blue */}
                         <Box sx={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', px: 3, pt: 3, pb: 2, color: '#fff', flexShrink: 0 }}>
                             <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
                                 <Box>
                                     <Typography variant="h6" fontWeight={700} color="#fff">{configVendor.business_name}</Typography>
-                                    <Typography variant="caption" sx={{ color: '#93c5fd' }}>
-                                        {[configVendor.related_vendor?.business_name, configVendor.business_name].filter(Boolean).join(' › ')}
-                                    </Typography>
-                                    <Box mt={1}>
-                                        <Chip label={configVendor.account_status} size="small"
-                                            sx={{ bgcolor: configVendor.account_status?.toLowerCase() === 'active' ? '#22c55e' : '#f59e0b', color: '#fff', fontWeight: 600, fontSize: 11 }} />
-                                    </Box>
+                                    <Typography variant="caption" sx={{ color: '#93c5fd' }}>{[configVendor.related_vendor?.business_name, configVendor.business_name].filter(Boolean).join(' › ')}</Typography>
+                                    <Box mt={1}><Chip label={configVendor.account_status} size="small" sx={{ bgcolor: configVendor.account_status?.toLowerCase() === 'active' ? '#22c55e' : '#f59e0b', color: '#fff', fontWeight: 600, fontSize: 11 }} /></Box>
                                 </Box>
-                                <IconButton onClick={closeConfig} size="small" sx={{ color: '#93c5fd', '&:hover': { color: '#fff', bgcolor: 'rgba(255,255,255,0.1)' } }}>
-                                    <Close fontSize="small" />
-                                </IconButton>
+                                <IconButton onClick={closeConfig} size="small" sx={{ color: '#93c5fd', '&:hover': { color: '#fff', bgcolor: 'rgba(255,255,255,0.1)' } }}><Close fontSize="small" /></IconButton>
                             </Stack>
                         </Box>
-
-                        {/* Tabs */}
                         <Box sx={{ bgcolor: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
-                            <Tabs
-                                value={configTab}
-                                onChange={(_, v) => setConfigTab(v)}
-                                variant="scrollable"
-                                scrollButtons="auto"
-                                sx={{
-                                    minHeight: 44,
-                                    '& .MuiTab-root': { fontSize: 12, fontWeight: 500, minHeight: 44, textTransform: 'none', color: '#64748b', px: 2 },
-                                    '& .Mui-selected': { color: '#1e3a8a', fontWeight: 700 },
-                                    '& .MuiTabs-indicator': { bgcolor: '#1e3a8a', height: 3, borderRadius: '3px 3px 0 0' },
-                                }}
-                            >
+                            <Tabs value={configTab} onChange={(_, v) => setConfigTab(v)} variant="scrollable" scrollButtons="auto"
+                                sx={{ minHeight: 44, '& .MuiTab-root': { fontSize: 12, fontWeight: 500, minHeight: 44, textTransform: 'none', color: '#64748b', px: 2 }, '& .Mui-selected': { color: '#1e3a8a', fontWeight: 700 }, '& .MuiTabs-indicator': { bgcolor: '#1e3a8a', height: 3, borderRadius: '3px 3px 0 0' } }}>
                                 {CONFIG_TABS.map(t => <Tab key={t} label={t} disableRipple />)}
                             </Tabs>
                         </Box>
-
-                        {/* Tab body */}
                         <Box sx={{ flex: 1, overflowY: 'auto', px: 3, py: 2.5 }}>
                             {configError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setConfigError(null)}>{configError}</Alert>}
                             {renderConfigTab()}
                         </Box>
-
-                        {/* Footer */}
                         <Box sx={{ px: 3, py: 2, borderTop: '1px solid #e2e8f0', bgcolor: '#f8faff', flexShrink: 0 }}>
                             <Stack direction="row" spacing={1.5}>
-                                <Button fullWidth variant="outlined" onClick={closeConfig}
-                                    sx={{ textTransform: 'none', borderRadius: 2, borderColor: '#cbd5e1', color: '#475569' }}>
-                                    Cancel
-                                </Button>
-                                <Button fullWidth variant="contained" onClick={handleSaveConfig} disabled={savingConfig}
-                                    sx={{ textTransform: 'none', borderRadius: 2, bgcolor: '#1e3a8a', fontWeight: 700, '&:hover': { bgcolor: '#1e40af' } }}>
+                                <Button fullWidth variant="outlined" onClick={closeConfig} sx={{ textTransform: 'none', borderRadius: 2, borderColor: '#cbd5e1', color: '#475569' }}>Cancel</Button>
+                                <Button fullWidth variant="contained" onClick={handleSaveConfig} disabled={savingConfig} sx={{ textTransform: 'none', borderRadius: 2, bgcolor: '#1e3a8a', fontWeight: 700, '&:hover': { bgcolor: '#1e40af' } }}>
                                     {savingConfig ? <CircularProgress size={18} color="inherit" /> : 'Save changes'}
                                 </Button>
                             </Stack>

@@ -1,64 +1,35 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-    Box,
-    Card,
-    CardContent,
-    TextField,
-    Button,
-    Typography,
-    Alert,
-    CircularProgress,
-    InputAdornment,
-    IconButton,
+    Box, Card, CardContent, TextField, Button, Typography,
+    Alert, CircularProgress, InputAdornment, IconButton,
 } from '@mui/material';
-import {
-    Visibility,
-    VisibilityOff,
-    Login as LoginIcon,
-} from '@mui/icons-material';
+import { Visibility, VisibilityOff, Login as LoginIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAppDispatch } from '../../store/store';
 import { extractAuthPayload, setAuth } from '../../store/slices/authSlice';
 import type { User } from '../../store/slices/authSlice';
 
-interface LoginFormData {
-    email: string;
-    password: string;
-}
+interface LoginFormData { email: string; password: string }
 
 const Login: React.FC = () => {
     const navigate = useNavigate();
     const dispatch = useAppDispatch();
-    const [formData, setFormData] = useState<LoginFormData>({
-        email: '',
-        password: '',
-    });
+    const [formData, setFormData] = useState<LoginFormData>({ email: '', password: '' });
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const hasCheckedAuth = useRef(false);
 
-    // Redirect if already authenticated (only once on mount)
     useEffect(() => {
         if (hasCheckedAuth.current) return;
-
         const token = localStorage.getItem('token');
-        console.log('Login component mounted - has token:', !!token);
-
-        if (token) {
-            console.log('Already has token, redirecting to /tenants/dashboard');
-            navigate('/tenants/dashboard');
-        }
-
+        if (token) navigate('/tenants/dashboard');
         hasCheckedAuth.current = true;
     }, [navigate]);
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: value,
-        }));
+        setFormData(prev => ({ ...prev, [name]: value }));
         if (error) setError(null);
     };
 
@@ -68,53 +39,44 @@ const Login: React.FC = () => {
         setIsLoading(true);
 
         try {
-            // Call backend API directly
             const response = await fetch('http://188.166.161.13:8061/user/login/', {
-            // const response = await fetch('http://188.166.99.136:8061/user/login/', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(formData),
             });
 
-            // Check content type before parsing
             const contentType = response.headers.get('content-type');
-            if (!contentType || !contentType.includes('application/json')) {
+            if (!contentType?.includes('application/json')) {
                 const text = await response.text();
                 console.error('Non-JSON response:', { status: response.status, body: text });
                 setError('Server returned invalid response format');
-                setIsLoading(false);
                 return;
             }
 
             const data = await response.json();
+
             if (!response.ok) {
                 setError(data.message || data.detail || 'Login failed. Please try again.');
-                setIsLoading(false);
                 return;
             }
 
-            const { user, token, refreshToken } = extractAuthPayload(data);
-            if (!token) {
-                setError('Login response did not include an access token');
-                setIsLoading(false);
+            // ── 202 → 2FA is ON — OTP has been sent to email ──────────────
+            if (response.status === 202) {
+                // Store email temporarily so OTP page can use it
+                sessionStorage.setItem('otp_email', formData.email);
+                navigate('/otp-verify');
                 return;
             }
+
+            // ── 200 → 2FA is OFF — log in directly ───────────────────────
+            const { user, token, refreshToken } = extractAuthPayload(data);
+            if (!token) { setError('Login response did not include an access token'); return; }
 
             const authPayload: { token: string; refreshToken?: string | null; user?: User | null } = { token };
+            if (refreshToken !== undefined) authPayload.refreshToken = refreshToken;
+            if (user !== undefined) authPayload.user = user;
 
-            
-            if (refreshToken !== undefined) {
-                authPayload.refreshToken = refreshToken;
-            }
-            if (user !== undefined) {
-                authPayload.user = user;
-            }
-            console.log(authPayload, "authPayload")
             dispatch(setAuth(authPayload));
-
-            console.log('Login successful, redirecting to /tenants/dashboard');
             navigate('/tenants/dashboard');
         } catch (err: any) {
             console.error('Login error:', err);
@@ -124,97 +86,52 @@ const Login: React.FC = () => {
         }
     };
 
-    const togglePasswordVisibility = () => {
-        setShowPassword(!showPassword);
-    };
-
     return (
-        <Box
-            sx={{
-                minHeight: '100vh',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                padding: 2,
-            }}
-        >
-            <Card sx={{ maxWidth: 400, width: '100%', boxShadow: 3 }}>
+        <Box sx={{
+            minHeight: '100vh', display: 'flex', alignItems: 'center',
+            justifyContent: 'center',
+            background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #3b82f6 100%)',
+            padding: 2,
+        }}>
+            <Card sx={{ maxWidth: 420, width: '100%', borderRadius: 4, boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
                 <CardContent sx={{ p: 4 }}>
                     <Box sx={{ textAlign: 'center', mb: 3 }}>
-                        <LoginIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
-                        <Typography variant="h4" component="h1" gutterBottom>
-                            QuickCash Vendor Portal
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Sign in to access your vendor dashboard
-                        </Typography>
+                        <Box sx={{ width: 64, height: 64, borderRadius: '50%', bgcolor: '#1e3a8a', display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                            <LoginIcon sx={{ fontSize: 32, color: '#fff' }} />
+                        </Box>
+                        <Typography variant="h4" fontWeight={800} gutterBottom>QuickCash Vendor Portal</Typography>
+                        <Typography variant="body2" color="text.secondary">Sign in to access your vendor dashboard</Typography>
                     </Box>
 
-                    {error && (
-                        <Alert severity="error" sx={{ mb: 2 }}>
-                            {error}
-                        </Alert>
-                    )}
+                    {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{error}</Alert>}
 
                     <form onSubmit={handleSubmit}>
-                        <TextField
-                            fullWidth
-                            label="Email Address"
-                            name="email"
-                            type="email"
-                            value={formData.email}
-                            onChange={handleInputChange}
-                            margin="normal"
-                            required
-                            autoComplete="email"
-                            autoFocus
-                        />
-                        <TextField
-                            fullWidth
-                            label="Password"
-                            name="password"
+                        <TextField fullWidth label="Email Address" name="email" type="email"
+                            value={formData.email} onChange={handleInputChange}
+                            margin="normal" required autoComplete="email" autoFocus
+                            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8faff' } }} />
+
+                        <TextField fullWidth label="Password" name="password"
                             type={showPassword ? 'text' : 'password'}
-                            value={formData.password}
-                            onChange={handleInputChange}
-                            margin="normal"
-                            required
-                            autoComplete="current-password"
+                            value={formData.password} onChange={handleInputChange}
+                            margin="normal" required autoComplete="current-password"
+                            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8faff' } }}
                             InputProps={{
                                 endAdornment: (
                                     <InputAdornment position="end">
-                                        <IconButton
-                                            aria-label="toggle password visibility"
-                                            onClick={togglePasswordVisibility}
-                                            edge="end"
-                                        >
+                                        <IconButton onClick={() => setShowPassword(p => !p)} edge="end">
                                             {showPassword ? <VisibilityOff /> : <Visibility />}
                                         </IconButton>
                                     </InputAdornment>
                                 ),
-                            }}
-                        />
-                        <Button
-                            type="submit"
-                            fullWidth
-                            variant="contained"
-                            size="large"
+                            }} />
+
+                        <Button type="submit" fullWidth variant="contained" size="large"
                             disabled={isLoading}
-                            sx={{ mt: 3, mb: 2 }}
-                        >
-                            {isLoading ? (
-                                <CircularProgress size={24} color="inherit" />
-                            ) : (
-                                'Sign In'
-                            )}
+                            sx={{ mt: 3, mb: 2, borderRadius: 2, height: 50, fontWeight: 700, textTransform: 'none', fontSize: 16, bgcolor: '#1e3a8a', '&:hover': { bgcolor: '#1e40af' } }}>
+                            {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Sign In'}
                         </Button>
                     </form>
-
-                    <Box sx={{ textAlign: 'center', mt: 2 }}>
-                        <Typography variant="body2" color="text.secondary">
-                            Vendor credentials: vendor1@quickcash.com / password
-                        </Typography>
-                    </Box>
                 </CardContent>
             </Card>
         </Box>
