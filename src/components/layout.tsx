@@ -46,7 +46,7 @@ import DashboardModal from '../components/DashboardModal/DashboardModal';
 import { useVendorHierarchy } from '../contexts/VendorContext';
 import { useEnsureUserApiKey } from '../hooks/useEnsureUserApiKey';
 
-const drawerWidth = 240;
+const drawerWidth = 240;  
 
 interface Tenant {
     id: string;

@@ -10,8 +10,11 @@ export interface Related_vendor {
 }
 
 export interface User {
-    id: string;
+    id: any;
     email: string;
+    name: string;
+    gender?: string;
+    phone_number?: string;
     firstName?: string;
     lastName?: string;
     is_2fa_enabled:boolean;

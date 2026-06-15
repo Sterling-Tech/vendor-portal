@@ -1,6 +1,22 @@
-import { get, post, patch, del } from './api';
+import { get, post, put, patch, del } from './api';
 import { Tenant } from './tenantService';
 
+export interface UpdateProfilePayload {
+    name?: string;
+    gender?: string;
+    phone_number?: string;
+    is_2fa_enabled?: boolean;
+}
+
+export interface UserProfile {
+    id: number;
+    name: string;
+    gender: string;
+    phone_number: string;
+    email: string;
+    is_2fa_enabled: boolean;
+    user_type: string;
+}
 export interface CreateAdmin {
     id: string;
     name: string;
@@ -63,6 +79,11 @@ export const createNewAdmin = (data: adminForm) => {
 export const getAllAdmin = () => {
     return get<CreateAdmin[]>('/user/admin/');
 }
+// ─── Update user profile  PUT /user/update-profile/ ───────────────────────────
+// Allowed fields: name, gender, phone_number, is_2fa_enabled
+// Email is NOT accepted by this endpoint — never pass it
+export const updateProfile = (data: UpdateProfilePayload) =>
+    put<UserProfile>('/user/update-profile/', data);
 
 export const getPermissions = () => {
     return get<PermissionItem[]>("/user/permissions/");
@@ -74,5 +95,5 @@ export const grantPermissions = (
 };
 export const changePassword = (data: ChangePasswordPayload) =>  {
         // Uses PUT as per the API spec
-        return post<any>('/user/change-password/', data);
+        return put<any>('/user/change-password/', data);
     };
