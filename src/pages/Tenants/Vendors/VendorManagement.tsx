@@ -1,18 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress,
-    Checkbox, Collapse, Divider, Drawer, FormControl, FormControlLabel,
-    FormHelperText, Grid, IconButton, InputAdornment, InputLabel,
-    List, ListItemButton, ListItemText, MenuItem, Paper, Select, Snackbar,
-    Stack, Switch, Tab, Table, TableBody, TableCell, TableHead,
-    TablePagination, TableRow, Tabs, TextField, Typography,
-    Dialog, DialogContent, Tooltip,
+    Checkbox, Collapse, Divider, Drawer, FormControl, FormHelperText, Grid,
+    IconButton, InputAdornment, InputLabel, List, ListItemButton, ListItemText,
+    MenuItem, Paper, Select, Snackbar, Stack, Switch, Tab, Table, TableBody,
+    TableCell, TableHead, TablePagination, TableRow, Tabs, TextField, Typography,
+    Dialog, DialogContent, DialogTitle, DialogActions, Tooltip,
 } from '@mui/material';
 import {
     AccountBalance, ArrowBack, ArrowDropDown, ArrowForward, Business,
-    CheckCircle, ChevronRight, Close, ContentCopy, Domain, Download,
-    People, Receipt, Refresh, RotateRight, Search, Delete, NavigateNext,
-    Settings, TrendingDown, TrendingUp, Person,
+    CheckCircle, ChevronRight, Close, Domain, Download, People, Receipt,
+    Refresh, Search, Delete, NavigateNext, Settings, TrendingDown, Person,
+    AccountBalanceWallet,
 } from '@mui/icons-material';
 import { useAppSelector } from '../../../store/hooks';
 import {
@@ -44,7 +43,6 @@ type VendorTransaction = {
     vendor?: { business_name?: string };
 };
 type VendorAnalytics = { total_balance: number; total_transactions: number; processed_today: number; active: number };
-type TransactionResponse = { count: number; next: string | null; previous: string | null; results: VendorTransaction[] };
 type VendorTreeNode = RelatedVendor & { children: VendorTreeNode[] };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -62,9 +60,7 @@ const STEP_SUBTITLES = [
     'Business profile and contact', 'KYC and bank details',
     'Transaction controls', 'Entity and agreement',
 ];
-const CONFIG_TABS = ['Commission', 'Vol. Targets', 'Enable / Disable', 'API & Rate Limit'];
 
-// ─── Hierarchy rules: given a parent's hierarchy, what can they create? ───────
 const getAllowedChildHierarchies = (parentHierarchy: string): VendorLevel[] => {
     switch ((parentHierarchy || '').toLowerCase()) {
         case 'vendor':     return ['sub_vendor', 'agent', 'cashier', 'pos'];
@@ -79,8 +75,7 @@ const getAllowedChildHierarchies = (parentHierarchy: string): VendorLevel[] => {
 const fmt = (d: Date) => d.toISOString().split('T')[0];
 const formatCurrency = (v: number | string | undefined | null) =>
     new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 2 }).format(Number(v || 0));
-const formatNumber = (v: number | string | undefined | null) =>
-    new Intl.NumberFormat('en-NG').format(Number(v || 0));
+const formatNumber = (v: number | string | undefined | null) => new Intl.NumberFormat('en-NG').format(Number(v || 0));
 const formatDate = (v?: string) => { const d = new Date(v || Date.now()); return isNaN(d.getTime()) ? '' : d.toLocaleDateString(); };
 const formatDateTime = (v?: string) => { const d = new Date(v || Date.now()); return isNaN(d.getTime()) ? '' : d.toLocaleString(); };
 const normalizeLevel = (v?: string): VendorLevel => {
@@ -186,14 +181,16 @@ const validateStep = (step: number, form: VendorFormState): Record<string, strin
     return e;
 };
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
 const VendorManagement: React.FC = () => {
     const { user } = useAppSelector((state) => state.auth);
     const today = new Date();
     const past = new Date(); past.setDate(today.getDate() - 14);
     const tomorrow = new Date(); tomorrow.setDate(today.getDate() + 1);
 
-    // list state
+    // ── List state ────────────────────────────────────────────────────────────
     const [vendors, setVendors] = useState<RelatedVendor[]>([]);
     const [selectedVendor, setSelectedVendor] = useState<RelatedVendor | null>(null);
     const [selectedChildren, setSelectedChildren] = useState<RelatedVendor[]>([]);
@@ -210,7 +207,7 @@ const VendorManagement: React.FC = () => {
     const [analyticsLoading, setAnalyticsLoading] = useState(false);
     const [analytics, setAnalytics] = useState<VendorAnalytics>({ total_balance: 0, total_transactions: 0, processed_today: 0, active: 0 });
 
-    // filters
+    // ── Filters ───────────────────────────────────────────────────────────────
     const [searchTerm, setSearchTerm] = useState('');
     const [levelFilter, setLevelFilter] = useState<VendorLevelFilter>('all');
     const [statusFilter, setStatusFilter] = useState<VendorStatusFilter>('all');
@@ -218,7 +215,7 @@ const VendorManagement: React.FC = () => {
     const [endDate, setEndDate] = useState('');
     const [statFilter, setStatFilter] = useState<StatFilterKey | null>(null);
 
-    // pagination
+    // ── Pagination ────────────────────────────────────────────────────────────
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(8);
     const [transactionPage, setTransactionPage] = useState(0);
@@ -226,114 +223,85 @@ const VendorManagement: React.FC = () => {
     const [transactionSearch, setTransactionSearch] = useState('');
     const [transactionStartDate, setTransactionStartDate] = useState(fmt(past));
     const [transactionEndDate, setTransactionEndDate] = useState(fmt(tomorrow));
-
-    // analytics date range
     const [cardStartDate, setCardStartDate] = useState(fmt(past));
     const [cardEndDate, setCardEndDate] = useState(fmt(tomorrow));
 
-    // wizard
+    // ── Wizard ────────────────────────────────────────────────────────────────
     const [createVendorOpen, setCreateVendorOpen] = useState(false);
     const [creatingVendor, setCreatingVendor] = useState(false);
     const [currentStep, setCurrentStep] = useState(0);
     const [vendorForm, setVendorForm] = useState<VendorFormState>({ ...EMPTY_FORM });
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
     const [dialogError, setDialogError] = useState<string | null>(null);
-
-    // ── Step 0: vendor picker state ───────────────────────────────────────────
     const [relatedVendorList, setRelatedVendorList] = useState<RelatedVendor[]>([]);
     const [vendorListLoading, setVendorListLoading] = useState(false);
     const [isSelf, setIsSelf] = useState(false);
-    // The vendor object that is currently selected as parent (drives hierarchy options)
     const [selectedParentVendor, setSelectedParentVendor] = useState<RelatedVendor | null>(null);
 
-    // config panel
+    // ── Config panel ──────────────────────────────────────────────────────────
     const [configVendor, setConfigVendor] = useState<RelatedVendor | null>(null);
-    const [configTab, setConfigTab] = useState(0);
-    const [configForm, setConfigForm] = useState<VendorConfigPayload>({});
+    const [configForm, setConfigForm] = useState({ funding_cap: '', transaction_max: '', commission_rate: '', monthly_target: '' });
     const [savingConfig, setSavingConfig] = useState(false);
     const [configError, setConfigError] = useState<string | null>(null);
+    const [configSuccess, setConfigSuccess] = useState<string | null>(null);
 
-    // ── Fetch the dropdown list of all related vendors ────────────────────────
-    const fetchRelatedVendorList = useCallback(async () => {
-        setVendorListLoading(true);
-        try {
-            const payload = await vendorManagementService.getRelatedVendors({});
-            setRelatedVendorList(parseVendorList(payload));
-        } catch {
-            setRelatedVendorList([]);
-        } finally {
-            setVendorListLoading(false);
-        }
-    }, []);
+    // ── Fund Wallet dialog ────────────────────────────────────────────────────
+    const [fundWalletVendor, setFundWalletVendor] = useState<RelatedVendor | null>(null);
+    const [fundForm, setFundForm] = useState({ amount: '', wallet_type: '', notes: '' });
+    const [fundingWallet, setFundingWallet] = useState(false);
+    const [fundError, setFundError] = useState<string | null>(null);
 
-    // Fetch vendor list every time the dialog opens; reset Step-0 state
-    useEffect(() => {
-        if (createVendorOpen) {
-            fetchRelatedVendorList();
-            setIsSelf(false);
-            setSelectedParentVendor(null);
-        }
-    }, [createVendorOpen, fetchRelatedVendorList]);
-
-    const setField = (key: keyof VendorFormState, value: any) => {
-        setVendorForm(prev => ({ ...prev, [key]: value }));
-        if (fieldErrors[key]) setFieldErrors(prev => { const n = { ...prev }; delete n[key]; return n; });
-    };
-
-    // ── "Self" checkbox handler ───────────────────────────────────────────────
-    const handleSelfToggle = (checked: boolean) => {
-        setIsSelf(checked);
-        if (checked) {
-            // Use current user's vendor as the parent
-            const selfId = String(user?.related_vendor?.id || '');
-            const selfHierarchy = user?.related_vendor?.hierachy || 'vendor';
-            setField('related_vendor', selfId);
-            setField('hierachy', ''); // reset — user still picks from filtered options
-            setSelectedParentVendor({
-                id: Number(selfId),
-                business_name: user?.related_vendor?.business_name || 'Me (Self)',
-                email: user?.email || '',
-                phone_number: '',
-                address: '', city: '', state: '', country: '', postal_code: '',
-                account_status: 'active',
-                hierachy: selfHierarchy,
-                created_at: '',
-            });
-        } else {
-            setField('related_vendor', '');
-            setField('hierachy', '');
-            setSelectedParentVendor(null);
-        }
-    };
-
-    // ── Related vendor dropdown change ────────────────────────────────────────
-    const handleParentVendorChange = (vendorId: string) => {
-        setField('related_vendor', vendorId);
-        setField('hierachy', ''); // reset hierarchy when parent changes
-        const found = relatedVendorList.find(v => String(v.id) === vendorId) || null;
-        setSelectedParentVendor(found);
-        if (fieldErrors.related_vendor || fieldErrors.hierachy)
-            setFieldErrors(prev => { const n = { ...prev }; delete n.related_vendor; delete n.hierachy; return n; });
-    };
-
-    // Allowed child hierarchies based on selected parent
+    // ── Computed ──────────────────────────────────────────────────────────────
     const allowedHierarchies = useMemo<VendorLevel[]>(() => {
         if (!selectedParentVendor) return [];
         return getAllowedChildHierarchies(selectedParentVendor.hierachy);
     }, [selectedParentVendor]);
 
-    // ── Wizard handlers ───────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // HANDLERS
+    // ─────────────────────────────────────────────────────────────────────────
+    const setField = (key: keyof VendorFormState, value: any) => {
+        setVendorForm(prev => ({ ...prev, [key]: value }));
+        if (fieldErrors[key]) setFieldErrors(prev => { const n = { ...prev }; delete n[key]; return n; });
+    };
+
+    const handleSelfToggle = (checked: boolean) => {
+        setIsSelf(checked);
+        if (checked) {
+            const selfId = String(user?.related_vendor?.id || '');
+            setField('related_vendor', selfId);
+            setField('hierachy', '');
+            setSelectedParentVendor({
+                id: Number(selfId),
+                business_name: user?.related_vendor?.business_name || 'Me (Self)',
+                email: user?.email || '', phone_number: '',
+                address: '', city: '', state: '', country: '', postal_code: '',
+                account_status: 'active', hierachy: user?.related_vendor?.hierachy || 'vendor', created_at: '',
+            });
+        } else {
+            setField('related_vendor', ''); setField('hierachy', ''); setSelectedParentVendor(null);
+        }
+    };
+
+    const handleParentVendorChange = (vendorId: string) => {
+        setField('related_vendor', vendorId); setField('hierachy', '');
+        setSelectedParentVendor(relatedVendorList.find(v => String(v.id) === vendorId) || null);
+        setFieldErrors(prev => { const n = { ...prev }; delete n.related_vendor; delete n.hierachy; return n; });
+    };
+
     const handleNext = () => {
         const errs = validateStep(currentStep, vendorForm);
         if (Object.keys(errs).length) { setFieldErrors(errs); return; }
         setFieldErrors({}); setCurrentStep(s => s + 1);
     };
     const handlePrev = () => { setCurrentStep(s => s - 1); setFieldErrors({}); };
+
     const handleCloseDialog = () => {
         setCreateVendorOpen(false); setVendorForm({ ...EMPTY_FORM });
         setFieldErrors({}); setDialogError(null); setCurrentStep(0);
         setIsSelf(false); setSelectedParentVendor(null);
     };
+
     const handleCreateVendor = async () => {
         const errs = validateStep(currentStep, vendorForm);
         if (Object.keys(errs).length) { setFieldErrors(errs); return; }
@@ -342,33 +310,76 @@ const VendorManagement: React.FC = () => {
             const payload: Record<string, any> = { ...vendorForm };
             Object.keys(payload).forEach(k => { if (payload[k] === '' || payload[k] == null) delete payload[k]; });
             await vendorManagementService.createVendor(payload as any);
-            setSuccess('Vendor created successfully');
-            handleCloseDialog();
-            await fetchRelatedVendors();
-        } catch (err: any) {
-            setDialogError(extractBackendError(err));
-        } finally { setCreatingVendor(false); }
+            setSuccess('Vendor created successfully'); handleCloseDialog(); await fetchRelatedVendors();
+        } catch (err: any) { setDialogError(extractBackendError(err)); }
+        finally { setCreatingVendor(false); }
     };
 
-    // ── Config panel ──────────────────────────────────────────────────────────
+    // ── Config handlers ───────────────────────────────────────────────────────
     const openConfig = (vendor: RelatedVendor) => {
-        setConfigVendor(vendor); setConfigTab(0); setConfigError(null);
-        setConfigForm({ commission_rate: '', funding_cap: '', transaction_max: '', monthly_target: '', api_rate_limit_per_minute: '60', api_rate_limit_per_day: '20000', webhook_url: '', enable_api_access: true });
+        setConfigVendor(vendor); setConfigError(null); setConfigSuccess(null);
+        setConfigForm({ funding_cap: '', transaction_max: '', commission_rate: '', monthly_target: '' });
     };
-    const closeConfig = () => { setConfigVendor(null); setConfigError(null); };
+    const closeConfig = () => { setConfigVendor(null); setConfigError(null); setConfigSuccess(null); };
+
     const handleSaveConfig = async () => {
         if (!configVendor) return;
-        setSavingConfig(true); setConfigError(null);
+        setSavingConfig(true); setConfigError(null); setConfigSuccess(null);
         try {
-            const payload: Record<string, any> = { ...configForm };
-            Object.keys(payload).forEach(k => { if (payload[k] === '' || payload[k] == null) delete payload[k]; });
-            await vendorManagementService.updateVendorConfig(configVendor.id, payload);
-            setSuccess('Configuration saved successfully'); closeConfig();
+            // Build payload — only send filled fields
+            const payload: Record<string, string> = {};
+            if (configForm.funding_cap.trim()) payload.funding_cap = configForm.funding_cap.trim();
+            if (configForm.transaction_max.trim()) payload.transaction_max = configForm.transaction_max.trim();
+            if (configForm.commission_rate.trim()) payload.commission_rate = configForm.commission_rate.trim();
+            if (configForm.monthly_target.trim()) payload.monthly_target = configForm.monthly_target.trim();
+
+            const result = await vendorManagementService.configureVendor(configVendor.id, payload);
+            // Show the vendor name from the response to confirm it worked
+            const name = result?.business_name || configVendor.business_name;
+            setConfigSuccess(`✓ Configuration saved for ${name}`);
+            // Refresh vendor list silently after 1.5 s then close
+            setTimeout(() => { fetchRelatedVendors(); closeConfig(); }, 1800);
         } catch (err: any) { setConfigError(extractBackendError(err)); }
         finally { setSavingConfig(false); }
     };
 
-    // ── Data fetches ──────────────────────────────────────────────────────────
+    // ── Fund Wallet handlers ──────────────────────────────────────────────────
+    const openFundWallet = (vendor: RelatedVendor) => {
+        setFundWalletVendor(vendor); setFundForm({ amount: '', wallet_type: '', notes: '' }); setFundError(null);
+    };
+    const closeFundWallet = () => { setFundWalletVendor(null); setFundError(null); };
+
+    const handleFundWallet = async () => {
+        if (!fundWalletVendor) return;
+        if (!fundForm.amount.trim() || isNaN(Number(fundForm.amount)) || Number(fundForm.amount) <= 0) {
+            setFundError('Please enter a valid amount greater than zero.'); return;
+        }
+        setFundingWallet(true); setFundError(null);
+        try {
+            await vendorManagementService.fundWallet({
+                vendor: fundWalletVendor.id,
+                amount: Number(fundForm.amount),
+            });
+            setSuccess(`Wallet funded successfully for ${fundWalletVendor.business_name}!`);
+            closeFundWallet(); fetchRelatedVendors();
+        } catch (err: any) { setFundError(extractBackendError(err)); }
+        finally { setFundingWallet(false); }
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // FETCHES
+    // ─────────────────────────────────────────────────────────────────────────
+    const fetchRelatedVendorList = useCallback(async () => {
+        setVendorListLoading(true);
+        try { setRelatedVendorList(parseVendorList(await vendorManagementService.getRelatedVendors({}))); }
+        catch { setRelatedVendorList([]); }
+        finally { setVendorListLoading(false); }
+    }, []);
+
+    useEffect(() => {
+        if (createVendorOpen) { fetchRelatedVendorList(); setIsSelf(false); setSelectedParentVendor(null); }
+    }, [createVendorOpen, fetchRelatedVendorList]);
+
     const fetchVendorAnalytics = useCallback(async () => {
         setAnalyticsLoading(true);
         try {
@@ -409,7 +420,7 @@ const VendorManagement: React.FC = () => {
 
     const fetchVendorChildren = useCallback(async (vendorId: number) => {
         setDetailLoading(true);
-        try { const payload = await vendorManagementService.getVendorChildren(vendorId); setSelectedChildren(parseVendorList(payload)); }
+        try { setSelectedChildren(parseVendorList(await vendorManagementService.getVendorChildren(vendorId))); }
         catch { setSelectedChildren([]); }
         finally { setDetailLoading(false); }
     }, []);
@@ -427,12 +438,13 @@ const VendorManagement: React.FC = () => {
         if (selectedVendor) fetchVendorTransactions(selectedVendor.id, transactionPage + 1, transactionRowsPerPage);
     }, [selectedVendor, transactionPage, transactionRowsPerPage, transactionSearch, transactionStartDate, transactionEndDate, fetchVendorTransactions]);
 
-    // ── Derived data ──────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // DERIVED DATA
+    // ─────────────────────────────────────────────────────────────────────────
     const filteredVendors = useMemo(() => {
         const term = searchTerm.trim().toLowerCase();
         return vendors.filter(v => {
-            const level = normalizeLevel(v.hierachy);
-            const status = (v.account_status || '').toLowerCase();
+            const level = normalizeLevel(v.hierachy); const status = (v.account_status || '').toLowerCase();
             const search = !term || v.business_name?.toLowerCase().includes(term) || v.email?.toLowerCase().includes(term) || v.phone_number?.toLowerCase().includes(term) || v.city?.toLowerCase().includes(term);
             const lvl = levelFilter === 'all' || level === levelFilter;
             const st = statusFilter === 'all' || status === statusFilter;
@@ -486,8 +498,7 @@ const VendorManagement: React.FC = () => {
     const renderVendorTree = (nodes: VendorTreeNode[], depth = 0): React.ReactNode => (
         <List disablePadding>
             {nodes.map(node => {
-                const hasChildren = Boolean(node.children?.length);
-                const isExpanded = expandedIds.has(node.id);
+                const hasChildren = Boolean(node.children?.length); const isExpanded = expandedIds.has(node.id);
                 return (
                     <Box key={node.id}>
                         <ListItemButton selected={selectedVendor?.id === node.id} onClick={() => handleSelectVendor(node)} sx={{ pl: 2 + depth * 2 }}>
@@ -519,234 +530,93 @@ const VendorManagement: React.FC = () => {
         );
     };
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ─────────────────────────────────────────────────────────────────────────
     // STEP CONTENT
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ─────────────────────────────────────────────────────────────────────────
     const renderStepContent = () => {
-        const fe = fieldErrors;
-        const tSx = inputSx;
+        const fe = fieldErrors; const tSx = inputSx;
         switch (currentStep) {
-
-            // ── Step 0: Parent (UPDATED) ─────────────────────────────────────
             case 0: return (
                 <Grid container spacing={2.5}>
-
-                    {/* ── Self toggle ── */}
                     <Grid item xs={12}>
-                        <Box sx={{
-                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                            p: 2, borderRadius: 2, border: '2px solid',
-                            borderColor: isSelf ? '#1e3a8a' : '#e2e8f0',
-                            bgcolor: isSelf ? '#eff6ff' : '#f8faff',
-                            transition: 'all 0.25s ease', cursor: 'pointer',
-                        }} onClick={() => handleSelfToggle(!isSelf)}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, borderRadius: 2, border: '2px solid', borderColor: isSelf ? '#1e3a8a' : '#e2e8f0', bgcolor: isSelf ? '#eff6ff' : '#f8faff', transition: 'all 0.25s ease', cursor: 'pointer' }} onClick={() => handleSelfToggle(!isSelf)}>
                             <Stack direction="row" spacing={1.5} alignItems="center">
-                                <Avatar sx={{ width: 38, height: 38, bgcolor: isSelf ? '#1e3a8a' : '#e2e8f0', transition: 'all 0.25s' }}>
-                                    <Person sx={{ fontSize: 20, color: isSelf ? '#fff' : '#94a3b8' }} />
-                                </Avatar>
+                                <Avatar sx={{ width: 38, height: 38, bgcolor: isSelf ? '#1e3a8a' : '#e2e8f0', transition: 'all 0.25s' }}><Person sx={{ fontSize: 20, color: isSelf ? '#fff' : '#94a3b8' }} /></Avatar>
                                 <Box>
-                                    <Typography fontWeight={600} fontSize={14} color={isSelf ? '#1e3a8a' : 'text.primary'}>
-                                        Use Self as Parent
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                        Select yourself ({user?.related_vendor?.business_name || 'Me'}) as the parent vendor
-                                    </Typography>
+                                    <Typography fontWeight={600} fontSize={14} color={isSelf ? '#1e3a8a' : 'text.primary'}>Use Self as Parent</Typography>
+                                    <Typography variant="caption" color="text.secondary">Select yourself ({user?.related_vendor?.business_name || 'Me'}) as the parent vendor</Typography>
                                 </Box>
                             </Stack>
-                            <Checkbox
-                                checked={isSelf}
-                                onChange={e => { e.stopPropagation(); handleSelfToggle(e.target.checked); }}
-                                sx={{ color: '#1e3a8a', '&.Mui-checked': { color: '#1e3a8a' }, pointerEvents: 'none' }}
-                            />
+                            <Checkbox checked={isSelf} onChange={e => { e.stopPropagation(); handleSelfToggle(e.target.checked); }} sx={{ color: '#1e3a8a', '&.Mui-checked': { color: '#1e3a8a' }, pointerEvents: 'none' }} />
                         </Box>
                     </Grid>
-
-                    {/* ── Divider ── */}
-                    <Grid item xs={12}>
-                        <Divider>
-                            <Typography variant="caption" color="text.secondary" px={1}>
-                                {isSelf ? 'Self selected — or uncheck to pick a vendor below' : 'Or select a related vendor as parent'}
-                            </Typography>
-                        </Divider>
-                    </Grid>
-
-                    {/* ── Related vendor dropdown ── */}
+                    <Grid item xs={12}><Divider><Typography variant="caption" color="text.secondary" px={1}>{isSelf ? 'Self selected — uncheck to pick below' : 'Or select a related vendor as parent'}</Typography></Divider></Grid>
                     <Grid item xs={12}>
                         <FormControl fullWidth required error={!!fe.related_vendor} sx={tSx} disabled={isSelf}>
-                            <InputLabel>
-                                {vendorListLoading ? 'Loading vendors…' : 'Select Parent Vendor *'}
-                            </InputLabel>
-                            <Select
-                                value={isSelf ? String(user?.related_vendor?.id || '') : vendorForm.related_vendor}
-                                label={vendorListLoading ? 'Loading vendors…' : 'Select Parent Vendor *'}
-                                onChange={e => handleParentVendorChange(e.target.value)}
-                                startAdornment={vendorListLoading ? <CircularProgress size={16} sx={{ ml: 1, mr: 0.5 }} /> : undefined}
-                            >
-                                {/* Self option at top */}
-                                <MenuItem value={String(user?.related_vendor?.id || '')} sx={{ bgcolor: '#f0f9ff', fontWeight: 600 }}>
+                            <InputLabel>{vendorListLoading ? 'Loading vendors…' : 'Select Parent Vendor *'}</InputLabel>
+                            <Select value={isSelf ? String(user?.related_vendor?.id || '') : vendorForm.related_vendor} label={vendorListLoading ? 'Loading vendors…' : 'Select Parent Vendor *'} onChange={e => handleParentVendorChange(e.target.value)} startAdornment={vendorListLoading ? <CircularProgress size={16} sx={{ ml: 1, mr: 0.5 }} /> : undefined}>
+                                <MenuItem value={String(user?.related_vendor?.id || '')} sx={{ bgcolor: '#f0f9ff' }}>
                                     <Stack direction="row" spacing={1} alignItems="center">
                                         <Person fontSize="small" sx={{ color: '#1e3a8a' }} />
-                                        <Box>
-                                            <Typography variant="body2" fontWeight={700} color="#1e3a8a">
-                                                {user?.related_vendor?.business_name || 'Me (Self)'}
-                                            </Typography>
-                                            <Typography variant="caption" color="text.secondary">
-                                                Self · {user?.related_vendor?.hierachy || 'vendor'}
-                                            </Typography>
-                                        </Box>
+                                        <Box><Typography variant="body2" fontWeight={700} color="#1e3a8a">{user?.related_vendor?.business_name || 'Me (Self)'}</Typography><Typography variant="caption" color="text.secondary">Self · {user?.related_vendor?.hierachy || 'vendor'}</Typography></Box>
                                         <Chip label="Self" size="small" color="primary" sx={{ ml: 'auto', height: 18, fontSize: 10 }} />
                                     </Stack>
                                 </MenuItem>
-
-                                {/* Divider between self and other vendors */}
-                                {relatedVendorList.length > 0 && (
-                                    <MenuItem disabled sx={{ py: 0.5, minHeight: 'auto', opacity: 1 }}>
-                                        <Divider sx={{ width: '100%' }} />
-                                    </MenuItem>
-                                )}
-
-                                {/* All related vendors */}
+                                {relatedVendorList.length > 0 && <MenuItem disabled sx={{ py: 0.5, minHeight: 'auto', opacity: 1 }}><Divider sx={{ width: '100%' }} /></MenuItem>}
                                 {relatedVendorList.map(v => (
                                     <MenuItem key={v.id} value={String(v.id)}>
                                         <Stack direction="row" spacing={1.5} alignItems="center" width="100%">
-                                            <Avatar sx={{ width: 32, height: 32, bgcolor: `${levelColor(v.hierachy)}.light`, color: `${levelColor(v.hierachy)}.main`, fontSize: 12, fontWeight: 700 }}>
-                                                {v.business_name.charAt(0)}
-                                            </Avatar>
-                                            <Box sx={{ flex: 1, minWidth: 0 }}>
-                                                <Typography variant="body2" fontWeight={600} noWrap>{v.business_name}</Typography>
-                                                <Typography variant="caption" color="text.secondary" noWrap>{v.email}</Typography>
-                                            </Box>
-                                            <Stack direction="row" spacing={0.5} alignItems="center" flexShrink={0}>
-                                                <Chip label={levelLabel(v.hierachy)} size="small" color={levelColor(v.hierachy)} variant="outlined" sx={{ height: 18, fontSize: 10 }} />
-                                                <Chip label={v.account_status} size="small" color={statusColor(v.account_status)} sx={{ height: 18, fontSize: 10 }} />
-                                            </Stack>
+                                            <Avatar sx={{ width: 32, height: 32, bgcolor: `${levelColor(v.hierachy)}.light`, color: `${levelColor(v.hierachy)}.main`, fontSize: 12, fontWeight: 700 }}>{v.business_name.charAt(0)}</Avatar>
+                                            <Box sx={{ flex: 1, minWidth: 0 }}><Typography variant="body2" fontWeight={600} noWrap>{v.business_name}</Typography><Typography variant="caption" color="text.secondary" noWrap>{v.email}</Typography></Box>
+                                            <Stack direction="row" spacing={0.5} flexShrink={0}><Chip label={levelLabel(v.hierachy)} size="small" color={levelColor(v.hierachy)} variant="outlined" sx={{ height: 18, fontSize: 10 }} /><Chip label={v.account_status} size="small" color={statusColor(v.account_status)} sx={{ height: 18, fontSize: 10 }} /></Stack>
                                         </Stack>
                                     </MenuItem>
                                 ))}
-
-                                {relatedVendorList.length === 0 && !vendorListLoading && (
-                                    <MenuItem disabled>
-                                        <Typography variant="body2" color="text.secondary" fontStyle="italic">
-                                            No related vendors found
-                                        </Typography>
-                                    </MenuItem>
-                                )}
+                                {relatedVendorList.length === 0 && !vendorListLoading && <MenuItem disabled><Typography variant="body2" color="text.secondary" fontStyle="italic">No related vendors found</Typography></MenuItem>}
                             </Select>
                             {fe.related_vendor && <FormHelperText>{fe.related_vendor}</FormHelperText>}
                         </FormControl>
                     </Grid>
-
-                    {/* ── Selected parent summary card ── */}
                     {selectedParentVendor && (
                         <Grid item xs={12}>
-                            <Box sx={{
-                                p: 2, borderRadius: 2, bgcolor: '#f0fdf4',
-                                border: '1px solid #bbf7d0', display: 'flex',
-                                alignItems: 'center', gap: 1.5,
-                            }}>
+                            <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#f0fdf4', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: 1.5 }}>
                                 <CheckCircle sx={{ color: '#16a34a', fontSize: 20, flexShrink: 0 }} />
                                 <Box>
-                                    <Typography variant="body2" fontWeight={700} color="#15803d">
-                                        {selectedParentVendor.business_name}
-                                        {isSelf && ' (Self)'}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                        Hierarchy: <strong>{levelLabel(selectedParentVendor.hierachy)}</strong>
-                                        {' · '}Can create: <strong>{allowedHierarchies.map(h => levelLabel(h)).join(', ') || 'None'}</strong>
-                                    </Typography>
+                                    <Typography variant="body2" fontWeight={700} color="#15803d">{selectedParentVendor.business_name}{isSelf && ' (Self)'}</Typography>
+                                    <Typography variant="caption" color="text.secondary">Hierarchy: <strong>{levelLabel(selectedParentVendor.hierachy)}</strong> · Can create: <strong>{allowedHierarchies.map(h => levelLabel(h)).join(', ') || 'None'}</strong></Typography>
                                 </Box>
                             </Box>
                         </Grid>
                     )}
-
-                    {/* ── Hierarchy dropdown (unlocked after parent selected) ── */}
                     <Grid item xs={12}>
-                        <FormControl
-                            fullWidth required
-                            error={!!fe.hierachy}
-                            disabled={!selectedParentVendor || allowedHierarchies.length === 0}
-                            sx={tSx}
-                        >
-                            <InputLabel>
-                                {!selectedParentVendor
-                                    ? 'Select a parent vendor first'
-                                    : allowedHierarchies.length === 0
-                                        ? 'No child hierarchy available'
-                                        : 'New Vendor Hierarchy *'}
-                            </InputLabel>
-                            <Select
-                                value={vendorForm.hierachy}
-                                label={!selectedParentVendor ? 'Select a parent vendor first' : 'New Vendor Hierarchy *'}
-                                onChange={e => setField('hierachy', e.target.value)}
-                            >
-                                {allowedHierarchies.map(h => (
-                                    <MenuItem key={h} value={h}>
-                                        <Stack direction="row" spacing={1} alignItems="center">
-                                            <Chip label={levelLabel(h)} size="small" color={levelColor(h)} variant="outlined" sx={{ height: 20, fontSize: 11 }} />
-                                            <Typography variant="body2">{levelLabel(h)}</Typography>
-                                        </Stack>
-                                    </MenuItem>
-                                ))}
+                        <FormControl fullWidth required error={!!fe.hierachy} disabled={!selectedParentVendor || allowedHierarchies.length === 0} sx={tSx}>
+                            <InputLabel>{!selectedParentVendor ? 'Select a parent vendor first' : allowedHierarchies.length === 0 ? 'No child hierarchy available' : 'New Vendor Hierarchy *'}</InputLabel>
+                            <Select value={vendorForm.hierachy} label={!selectedParentVendor ? 'Select a parent vendor first' : 'New Vendor Hierarchy *'} onChange={e => setField('hierachy', e.target.value)}>
+                                {allowedHierarchies.map(h => (<MenuItem key={h} value={h}><Stack direction="row" spacing={1} alignItems="center"><Chip label={levelLabel(h)} size="small" color={levelColor(h)} variant="outlined" sx={{ height: 20, fontSize: 11 }} /><Typography variant="body2">{levelLabel(h)}</Typography></Stack></MenuItem>))}
                             </Select>
                             {fe.hierachy && <FormHelperText>{fe.hierachy}</FormHelperText>}
-                            {!selectedParentVendor && (
-                                <FormHelperText sx={{ color: '#94a3b8' }}>
-                                    Hierarchy options will appear after you select a parent vendor above
-                                </FormHelperText>
-                            )}
+                            {!selectedParentVendor && <FormHelperText sx={{ color: '#94a3b8' }}>Hierarchy options appear after selecting a parent vendor</FormHelperText>}
                         </FormControl>
                     </Grid>
                 </Grid>
             );
-
-            // ── Step 1: Basic ────────────────────────────────────────────────
             case 1: return (
                 <Grid container spacing={2.5}>
+                    <Grid item xs={12}><TextField fullWidth required label="Business Name *" value={vendorForm.business_name} error={!!fe.business_name} helperText={fe.business_name} onChange={e => setField('business_name', e.target.value)} sx={tSx} /></Grid>
+                    <Grid item xs={12} md={6}><TextField fullWidth required label="License / Domain *" value={vendorForm.domain} error={!!fe.domain} helperText={fe.domain} onChange={e => setField('domain', e.target.value)} sx={tSx} /></Grid>
+                    <Grid item xs={12} md={6}><TextField fullWidth label="Subdomain" value={vendorForm.sub_domain} onChange={e => setField('sub_domain', e.target.value)} sx={tSx} /></Grid>
+                    <Grid item xs={12} md={6}><TextField fullWidth label="Slug" value={vendorForm.slug} onChange={e => setField('slug', e.target.value)} sx={tSx} /></Grid>
+                    <Grid item xs={12} md={6}><TextField fullWidth label="Trial Ends" type="date" InputLabelProps={{ shrink: true }} value={vendorForm.trial_ends} onChange={e => setField('trial_ends', e.target.value)} sx={tSx} /></Grid>
+                    <Grid item xs={12} md={6}><TextField fullWidth required label="Admin Email *" type="email" value={vendorForm.email} error={!!fe.email} helperText={fe.email} onChange={e => setField('email', e.target.value)} sx={tSx} /></Grid>
+                    <Grid item xs={12} md={6}><TextField fullWidth required label="Phone Number *" value={vendorForm.phone_number} error={!!fe.phone_number} helperText={fe.phone_number} onChange={e => setField('phone_number', e.target.value)} sx={tSx} /></Grid>
                     <Grid item xs={12}>
-                        <TextField fullWidth required label="Business Name *" placeholder="Enter a unique name"
-                            value={vendorForm.business_name} error={!!fe.business_name} helperText={fe.business_name}
-                            onChange={e => setField('business_name', e.target.value)} sx={tSx} />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                        <TextField fullWidth required label="License / Domain *" placeholder="Unique identifier"
-                            value={vendorForm.domain} error={!!fe.domain} helperText={fe.domain}
-                            onChange={e => setField('domain', e.target.value)} sx={tSx} />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                        <TextField fullWidth label="Subdomain" placeholder="Optional"
-                            value={vendorForm.sub_domain} onChange={e => setField('sub_domain', e.target.value)} sx={tSx} />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                        <TextField fullWidth label="Slug" value={vendorForm.slug} onChange={e => setField('slug', e.target.value)} sx={tSx} />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                        <TextField fullWidth label="Trial Ends" type="date" InputLabelProps={{ shrink: true }}
-                            value={vendorForm.trial_ends} onChange={e => setField('trial_ends', e.target.value)} sx={tSx} />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                        <TextField fullWidth required label="Admin Email *" type="email"
-                            value={vendorForm.email} error={!!fe.email} helperText={fe.email}
-                            onChange={e => setField('email', e.target.value)} sx={tSx} />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                        <TextField fullWidth required label="Phone Number *"
-                            value={vendorForm.phone_number} error={!!fe.phone_number} helperText={fe.phone_number}
-                            onChange={e => setField('phone_number', e.target.value)} sx={tSx} />
-                    </Grid>
-                    <Grid item xs={12}>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center"
-                            sx={{ p: 2, bgcolor: '#f3f4f8', borderRadius: 2, border: '1px solid #e2e8f0' }}>
-                            <Box>
-                                <Typography fontWeight={500}>Active on creation</Typography>
-                                <Typography variant="caption" color="text.secondary">Vendor will be immediately active</Typography>
-                            </Box>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 2, bgcolor: '#f3f4f8', borderRadius: 2, border: '1px solid #e2e8f0' }}>
+                            <Box><Typography fontWeight={500}>Active on creation</Typography><Typography variant="caption" color="text.secondary">Vendor will be immediately active</Typography></Box>
                             <Switch checked={vendorForm.active_on_creation} onChange={e => setField('active_on_creation', e.target.checked)} />
                         </Stack>
                     </Grid>
                 </Grid>
             );
-
-            // ── Step 2: Profile ──────────────────────────────────────────────
             case 2: return (
                 <Grid container spacing={2.5}>
                     <Grid item xs={12}><TextField fullWidth required label="Address *" value={vendorForm.address} error={!!fe.address} helperText={fe.address} onChange={e => setField('address', e.target.value)} sx={tSx} /></Grid>
@@ -765,21 +635,12 @@ const VendorManagement: React.FC = () => {
                     <Grid item xs={12}><TextField fullWidth multiline rows={3} label="Description" value={vendorForm.description} onChange={e => setField('description', e.target.value)} sx={tSx} /></Grid>
                 </Grid>
             );
-
-            // ── Step 3: KYC ──────────────────────────────────────────────────
             case 3: return (
                 <Grid container spacing={2.5}>
                     <Grid item xs={12} md={6}><TextField fullWidth label="Owner Name" value={vendorForm.owner_name} onChange={e => setField('owner_name', e.target.value)} sx={tSx} /></Grid>
                     <Grid item xs={12} md={6}><TextField fullWidth label="Date of Birth" type="date" InputLabelProps={{ shrink: true }} value={vendorForm.dob} onChange={e => setField('dob', e.target.value)} sx={tSx} /></Grid>
                     <Grid item xs={12} md={6}><TextField fullWidth label="Nationality" value={vendorForm.nationality} onChange={e => setField('nationality', e.target.value)} sx={tSx} /></Grid>
-                    <Grid item xs={12} md={6}>
-                        <FormControl fullWidth sx={tSx}>
-                            <InputLabel>ID Type</InputLabel>
-                            <Select value={vendorForm.id_type} label="ID Type" onChange={e => setField('id_type', e.target.value)}>
-                                {['NIN', 'BVN', 'Passport', "Driver's License", "Voter's Card"].map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-                            </Select>
-                        </FormControl>
-                    </Grid>
+                    <Grid item xs={12} md={6}><FormControl fullWidth sx={tSx}><InputLabel>ID Type</InputLabel><Select value={vendorForm.id_type} label="ID Type" onChange={e => setField('id_type', e.target.value)}>{['NIN', 'BVN', 'Passport', "Driver's License", "Voter's Card"].map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}</Select></FormControl></Grid>
                     <Grid item xs={12} md={6}><TextField fullWidth label="ID Number" value={vendorForm.id_number} onChange={e => setField('id_number', e.target.value)} sx={tSx} /></Grid>
                     <Grid item xs={12} md={6}><TextField fullWidth label="Owner Address" value={vendorForm.owner_address} onChange={e => setField('owner_address', e.target.value)} sx={tSx} /></Grid>
                     <Grid item xs={12}><Divider><Typography variant="caption" color="text.secondary">Bank Details</Typography></Divider></Grid>
@@ -788,8 +649,6 @@ const VendorManagement: React.FC = () => {
                     <Grid item xs={12} md={4}><TextField fullWidth label="Account Number" value={vendorForm.account_number} onChange={e => setField('account_number', e.target.value)} sx={tSx} /></Grid>
                 </Grid>
             );
-
-            // ── Step 4: Controls ─────────────────────────────────────────────
             case 4: return (
                 <Grid container spacing={2.5}>
                     <Grid item xs={12} md={6}><TextField fullWidth label="Funding Cap (₦)" type="number" value={vendorForm.funding_cap} onChange={e => setField('funding_cap', e.target.value)} helperText="Max wallet funding" sx={tSx} /></Grid>
@@ -799,8 +658,6 @@ const VendorManagement: React.FC = () => {
                     <Grid item xs={12}><Box sx={{ p: 2, bgcolor: '#f0f7ff', borderRadius: 2, border: '1px solid #bfdbfe' }}><Typography variant="body2" color="primary.main" fontWeight={600}>Leave empty to inherit parent defaults</Typography></Box></Grid>
                 </Grid>
             );
-
-            // ── Step 5: Agreement ────────────────────────────────────────────
             case 5: return (
                 <Grid container spacing={2.5}>
                     <Grid item xs={12} md={6}><TextField fullWidth label="Entity Name" value={vendorForm.entity_name} onChange={e => setField('entity_name', e.target.value)} sx={tSx} /></Grid>
@@ -812,58 +669,6 @@ const VendorManagement: React.FC = () => {
                     <Grid item xs={12} md={4}><TextField fullWidth label="Signatory Email" type="email" value={vendorForm.signatory_email} onChange={e => setField('signatory_email', e.target.value)} sx={tSx} /></Grid>
                     <Grid item xs={12}><Box sx={{ p: 2.5, bgcolor: '#f0fdf4', borderRadius: 2, border: '1px solid #bbf7d0' }}><Typography variant="body2" color="success.main" fontWeight={600}>Ready to Create — all required fields must be filled.</Typography></Box></Grid>
                 </Grid>
-            );
-
-            default: return null;
-        }
-    };
-
-    // ── Config panel tab content ──────────────────────────────────────────────
-    const renderConfigTab = () => {
-        const tSx = { ...inputSx, mb: 0 };
-        switch (configTab) {
-            case 0: return (
-                <Stack spacing={2.5} pt={1}>
-                    <Typography variant="body2" color="text.secondary">Set the commission rate for this vendor. Leave blank to inherit from parent.</Typography>
-                    <TextField fullWidth label="Commission Rate (%)" type="number" placeholder="e.g. 2.5" value={configForm.commission_rate || ''} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, commission_rate: e.target.value }))} />
-                </Stack>
-            );
-            case 1: return (
-                <Stack spacing={2.5} pt={1}>
-                    <Typography variant="body2" color="text.secondary">Configure volume targets and funding limits.</Typography>
-                    <TextField fullWidth label="Monthly Target (₦)" type="number" value={configForm.monthly_target || ''} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, monthly_target: e.target.value }))} />
-                    <TextField fullWidth label="Funding Cap (₦)" type="number" value={configForm.funding_cap || ''} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, funding_cap: e.target.value }))} />
-                    <TextField fullWidth label="Transaction Max (₦)" type="number" value={configForm.transaction_max || ''} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, transaction_max: e.target.value }))} />
-                </Stack>
-            );
-            case 2: return (
-                <Stack spacing={2} pt={1}>
-                    <Typography variant="body2" color="text.secondary">Control vendor feature flags and access.</Typography>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 2, bgcolor: '#f3f4f8', borderRadius: 2, border: '1px solid #e2e8f0' }}>
-                        <Box><Typography fontWeight={500} fontSize={14}>Enable API Access</Typography><Typography variant="caption" color="text.secondary">Allow this vendor to access the API</Typography></Box>
-                        <Switch checked={Boolean(configForm.enable_api_access)} onChange={e => setConfigForm(p => ({ ...p, enable_api_access: e.target.checked }))} />
-                    </Stack>
-                </Stack>
-            );
-            case 3: return (
-                <Stack spacing={2.5} pt={1}>
-                    <Box><Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>API ACCESS</Typography></Box>
-                    <Box>
-                        <Typography variant="body2" mb={0.75} fontWeight={500}>API key</Typography>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                            <TextField fullWidth size="small" value="sk-••••••••••••••••••••••••••••••" disabled sx={{ ...tSx, '& .MuiOutlinedInput-input': { fontFamily: 'monospace', letterSpacing: 2, bgcolor: 'transparent' } }} />
-                            <IconButton size="small" title="Copy" sx={{ border: '1px solid #e2e8f0', borderRadius: 1.5 }}><ContentCopy fontSize="small" /></IconButton>
-                            <IconButton size="small" title="Regenerate" sx={{ border: '1px solid #e2e8f0', borderRadius: 1.5 }}><RotateRight fontSize="small" /></IconButton>
-                        </Stack>
-                    </Box>
-                    <TextField fullWidth label="Requests per minute" type="number" value={configForm.api_rate_limit_per_minute || '60'} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, api_rate_limit_per_minute: e.target.value }))} />
-                    <TextField fullWidth label="Requests per day" type="number" value={configForm.api_rate_limit_per_day || '20000'} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, api_rate_limit_per_day: e.target.value }))} />
-                    <TextField fullWidth label="Webhook URL" placeholder="https://your-domain.com/webhook" value={configForm.webhook_url || ''} sx={tSx} onChange={e => setConfigForm(p => ({ ...p, webhook_url: e.target.value }))} />
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 2, bgcolor: '#f3f4f8', borderRadius: 2, border: '1px solid #e2e8f0' }}>
-                        <Typography fontWeight={500} fontSize={14}>Enable API access</Typography>
-                        <Switch checked={Boolean(configForm.enable_api_access)} onChange={e => setConfigForm(p => ({ ...p, enable_api_access: e.target.checked }))} />
-                    </Stack>
-                </Stack>
             );
             default: return null;
         }
@@ -922,35 +727,11 @@ const VendorManagement: React.FC = () => {
                     <Card sx={{ mb: 3, borderRadius: 2 }}>
                         <CardContent>
                             <Grid container spacing={2} alignItems="center">
-                                <Grid item xs={12} md={4}>
-                                    <TextField fullWidth size="small" placeholder="Search business, email, phone, city" value={searchTerm}
-                                        onChange={e => { setSearchTerm(e.target.value); setPage(0); }} sx={inputSx}
-                                        InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }} />
-                                </Grid>
-                                <Grid item xs={12} md={2}>
-                                    <FormControl fullWidth size="small" sx={inputSx}>
-                                        <InputLabel>Hierarchy</InputLabel>
-                                        <Select value={levelFilter} label="Hierarchy" onChange={e => { setLevelFilter(e.target.value as VendorLevelFilter); setPage(0); }}>
-                                            <MenuItem value="all">All Hierarchy</MenuItem>
-                                            {LEVEL_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
-                                        </Select>
-                                    </FormControl>
-                                </Grid>
-                                <Grid item xs={12} md={2}>
-                                    <FormControl fullWidth size="small" sx={inputSx}>
-                                        <InputLabel>Status</InputLabel>
-                                        <Select value={statusFilter} label="Status" onChange={e => { setStatusFilter(e.target.value as VendorStatusFilter); setPage(0); }}>
-                                            <MenuItem value="all">All Status</MenuItem>
-                                            {STATUS_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
-                                        </Select>
-                                    </FormControl>
-                                </Grid>
-                                <Grid item xs={12} md={2}>
-                                    <TextField fullWidth size="small" type="date" label="Start Date" value={startDate} onChange={e => { setStartDate(e.target.value); setPage(0); }} InputLabelProps={{ shrink: true }} sx={inputSx} />
-                                </Grid>
-                                <Grid item xs={12} md={2}>
-                                    <TextField fullWidth size="small" type="date" label="End Date" value={endDate} onChange={e => { setEndDate(e.target.value); setPage(0); }} InputLabelProps={{ shrink: true }} sx={inputSx} />
-                                </Grid>
+                                <Grid item xs={12} md={4}><TextField fullWidth size="small" placeholder="Search business, email, phone, city" value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setPage(0); }} sx={inputSx} InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }} /></Grid>
+                                <Grid item xs={12} md={2}><FormControl fullWidth size="small" sx={inputSx}><InputLabel>Hierarchy</InputLabel><Select value={levelFilter} label="Hierarchy" onChange={e => { setLevelFilter(e.target.value as VendorLevelFilter); setPage(0); }}><MenuItem value="all">All Hierarchy</MenuItem>{LEVEL_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}</Select></FormControl></Grid>
+                                <Grid item xs={12} md={2}><FormControl fullWidth size="small" sx={inputSx}><InputLabel>Status</InputLabel><Select value={statusFilter} label="Status" onChange={e => { setStatusFilter(e.target.value as VendorStatusFilter); setPage(0); }}><MenuItem value="all">All Status</MenuItem>{STATUS_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}</Select></FormControl></Grid>
+                                <Grid item xs={12} md={2}><TextField fullWidth size="small" type="date" label="Start Date" value={startDate} onChange={e => { setStartDate(e.target.value); setPage(0); }} InputLabelProps={{ shrink: true }} sx={inputSx} /></Grid>
+                                <Grid item xs={12} md={2}><TextField fullWidth size="small" type="date" label="End Date" value={endDate} onChange={e => { setEndDate(e.target.value); setPage(0); }} InputLabelProps={{ shrink: true }} sx={inputSx} /></Grid>
                                 <Grid item xs={12}>
                                     <Stack direction="row" spacing={2} flexWrap="wrap" alignItems="center">
                                         <Tooltip title="Filter by active status" arrow><span><StatFilterChip label="active" filterKey="active" count={stats.active} /></span></Tooltip>
@@ -1043,7 +824,22 @@ const VendorManagement: React.FC = () => {
                                                     <Chip label={getLocation(selectedVendor)} variant="outlined" />
                                                 </Stack>
                                             </Stack>
-                                            <Button variant="contained" color="error" sx={{ height: 36, textTransform: 'none', borderRadius: 2 }} startIcon={<Delete />} onClick={() => handleDeleteVendor(selectedVendor.id)}>Delete</Button>
+                                            {/* ── Delete + Fund Wallet buttons ── */}
+                                            <Stack direction="row" spacing={1} flexShrink={0}>
+                                                <Button
+                                                    variant="outlined"
+                                                    startIcon={<AccountBalanceWallet />}
+                                                    onClick={() => openFundWallet(selectedVendor)}
+                                                    sx={{
+                                                        height: 36, textTransform: 'none', borderRadius: 2,
+                                                        borderColor: '#16a34a', color: '#16a34a',
+                                                        '&:hover': { bgcolor: '#f0fdf4', borderColor: '#15803d' },
+                                                    }}
+                                                >
+                                                    Fund Wallet
+                                                </Button>
+                                                <Button variant="contained" color="error" sx={{ height: 36, textTransform: 'none', borderRadius: 2 }} startIcon={<Delete />} onClick={() => handleDeleteVendor(selectedVendor.id)}>Delete</Button>
+                                            </Stack>
                                         </Stack>
                                         <Grid container spacing={2}>
                                             <Grid item xs={12} md={6}><Typography variant="body2" color="text.secondary">Phone</Typography><Typography>{selectedVendor.phone_number || 'N/A'}</Typography></Grid>
@@ -1065,6 +861,7 @@ const VendorManagement: React.FC = () => {
                                         </Collapse>
                                     </CardContent>
                                 </Card>
+
                                 <Card sx={{ borderRadius: 2 }}>
                                     <CardContent>
                                         <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
@@ -1114,11 +911,13 @@ const VendorManagement: React.FC = () => {
                 </Box>
             )}
 
-            <Snackbar open={Boolean(success)} autoHideDuration={3000} onClose={() => setSuccess(null)} anchorOrigin={{ vertical: 'top', horizontal: 'right' }}>
-                <Paper sx={{ p: 1.5, bgcolor: 'success.main', color: 'success.contrastText' }}>{success}</Paper>
+            <Snackbar open={Boolean(success)} autoHideDuration={3500} onClose={() => setSuccess(null)} anchorOrigin={{ vertical: 'top', horizontal: 'right' }}>
+                <Alert severity="success" onClose={() => setSuccess(null)} sx={{ borderRadius: 2, fontWeight: 600 }}>{success}</Alert>
             </Snackbar>
 
-            {/* ══════════ WIZARD ══════════ */}
+            {/* ══════════════════════════════════════════════════════════════════
+                WIZARD DIALOG
+            ══════════════════════════════════════════════════════════════════ */}
             <Dialog open={createVendorOpen} onClose={handleCloseDialog} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
                 <Box sx={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', px: 3, pt: 3, pb: 0, color: '#fff' }}>
                     <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={1.5}>
@@ -1165,36 +964,240 @@ const VendorManagement: React.FC = () => {
                 </Box>
             </Dialog>
 
-            {/* ══════════ CONFIG DRAWER ══════════ */}
+            {/* ══════════════════════════════════════════════════════════════════
+                FUND WALLET DIALOG
+            ══════════════════════════════════════════════════════════════════ */}
+            <Dialog open={Boolean(fundWalletVendor)} onClose={closeFundWallet} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+                {/* Header */}
+                <Box sx={{ background: 'linear-gradient(135deg, #211580 0%, #1f16a3 100%)', px: 3, pt: 3, pb: 2.5, color: '#fff' }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                        <Box>
+                            <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
+                                <AccountBalanceWallet sx={{ fontSize: 22 }} />
+                                <Typography variant="h6" fontWeight={700} color="#fff">Fund Vendor Wallet</Typography>
+                            </Stack>
+                            {/* <Typography variant="caption" sx={{ color: '#86efac' }}>
+                                POST /vendor/wallet/load/
+                            </Typography> */}
+                        </Box>
+                        <IconButton onClick={closeFundWallet} size="small" sx={{ color: '#86efac', '&:hover': { color: '#fff' } }}><Close fontSize="small" /></IconButton>
+                    </Stack>
+                </Box>
+
+                <DialogContent sx={{ pt: 3, pb: 1 }}>
+                    {fundError && (
+                        <Alert severity="error" sx={{ mb: 2.5, borderRadius: 2 }} onClose={() => setFundError(null)}>
+                            {fundError}
+                        </Alert>
+                    )}
+
+                    <Stack spacing={2.5}>
+                        {/* Vendor name — read-only */}
+                        <TextField
+                            fullWidth label="Vendor"
+                            value={fundWalletVendor?.business_name || ''}
+                            disabled
+                            sx={{
+                                ...inputSx,
+                                '& .MuiOutlinedInput-root': { ...inputSx['& .MuiOutlinedInput-root'], bgcolor: '#f1f5f9' },
+                            }}
+                            helperText={`ID: ${fundWalletVendor?.id} · ${levelLabel(fundWalletVendor?.hierachy)}`}
+                        />
+
+                        {/* Amount */}
+                        <TextField
+                            fullWidth required
+                            label="Amount (₦)"
+                            type="number"
+                            placeholder="e.g. 5000"
+                            value={fundForm.amount}
+                            onChange={e => { setFundForm(p => ({ ...p, amount: e.target.value })); setFundError(null); }}
+                            sx={inputSx}
+                            inputProps={{ min: 1 }}
+                            helperText="Enter the amount to load into this vendor's wallet"
+                        />
+
+                        {/* Wallet type */}
+                        <TextField
+                            fullWidth
+                            label="Wallet Type"
+                            placeholder="e.g. Debit, Credit"
+                            value={fundForm.wallet_type}
+                            onChange={e => setFundForm(p => ({ ...p, wallet_type: e.target.value }))}
+                            sx={inputSx}
+                            helperText="Optional — leave blank for default wallet type"
+                        />
+
+                        {/* Notes */}
+                        <TextField
+                            fullWidth
+                            label="Notes"
+                            placeholder="Optional reason or reference"
+                            value={fundForm.notes}
+                            multiline rows={2}
+                            onChange={e => setFundForm(p => ({ ...p, notes: e.target.value }))}
+                            sx={inputSx}
+                        />
+
+                        {/* Summary */}
+                        {fundForm.amount && Number(fundForm.amount) > 0 && (
+                            <Box sx={{ p: 2, bgcolor: '#f0fdf4', borderRadius: 2, border: '1px solid #bbf7d0' }}>
+                                <Typography variant="body2" color="#15803d" fontWeight={700}>
+                                    You are loading {formatCurrency(fundForm.amount)} into {fundWalletVendor?.business_name}'s wallet
+                                </Typography>
+                            </Box>
+                        )}
+                    </Stack>
+                </DialogContent>
+
+                <DialogActions sx={{ px: 3, py: 2.5, gap: 1 }}>
+                    <Button fullWidth variant="outlined" onClick={closeFundWallet} sx={{ borderRadius: 2, textTransform: 'none' }}>Cancel</Button>
+                    <Button
+                        fullWidth variant="contained"
+                        onClick={handleFundWallet}
+                        disabled={fundingWallet || !fundForm.amount || Number(fundForm.amount) <= 0}
+                        sx={{ borderRadius: 2, textTransform: 'none', bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' }, fontWeight: 700 }}
+                    >
+                        {fundingWallet ? <CircularProgress size={18} color="inherit" /> : 'Fund Wallet'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* ══════════════════════════════════════════════════════════════════
+                CONFIG DRAWER  — PUT /vendor/configure/?vendor_id=X
+            ══════════════════════════════════════════════════════════════════ */}
             <Drawer anchor="right" open={Boolean(configVendor)} onClose={closeConfig}
-                PaperProps={{ sx: { width: { xs: '100vw', sm: 440 }, borderRadius: '16px 0 0 16px', overflow: 'hidden', boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' } }}>
+                PaperProps={{ sx: { width: { xs: '100vw', sm: 460 }, borderRadius: '16px 0 0 16px', overflow: 'hidden', boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' } }}>
                 {configVendor && (
                     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                        {/* Header */}
                         <Box sx={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', px: 3, pt: 3, pb: 2, color: '#fff', flexShrink: 0 }}>
                             <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
                                 <Box>
                                     <Typography variant="h6" fontWeight={700} color="#fff">{configVendor.business_name}</Typography>
                                     <Typography variant="caption" sx={{ color: '#93c5fd' }}>{[configVendor.related_vendor?.business_name, configVendor.business_name].filter(Boolean).join(' › ')}</Typography>
-                                    <Box mt={1}><Chip label={configVendor.account_status} size="small" sx={{ bgcolor: configVendor.account_status?.toLowerCase() === 'active' ? '#22c55e' : '#f59e0b', color: '#fff', fontWeight: 600, fontSize: 11 }} /></Box>
+                                    <Box mt={1}>
+                                        <Chip label={configVendor.account_status} size="small" sx={{ bgcolor: configVendor.account_status?.toLowerCase() === 'active' ? '#22c55e' : '#f59e0b', color: '#fff', fontWeight: 600, fontSize: 11 }} />
+                                        <Chip label={`ID: ${configVendor.id}`} size="small" sx={{ ml: 0.5, bgcolor: 'rgba(255,255,255,0.15)', color: '#fff', fontSize: 11 }} />
+                                    </Box>
                                 </Box>
                                 <IconButton onClick={closeConfig} size="small" sx={{ color: '#93c5fd', '&:hover': { color: '#fff', bgcolor: 'rgba(255,255,255,0.1)' } }}><Close fontSize="small" /></IconButton>
                             </Stack>
                         </Box>
-                        <Box sx={{ bgcolor: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
-                            <Tabs value={configTab} onChange={(_, v) => setConfigTab(v)} variant="scrollable" scrollButtons="auto"
-                                sx={{ minHeight: 44, '& .MuiTab-root': { fontSize: 12, fontWeight: 500, minHeight: 44, textTransform: 'none', color: '#64748b', px: 2 }, '& .Mui-selected': { color: '#1e3a8a', fontWeight: 700 }, '& .MuiTabs-indicator': { bgcolor: '#1e3a8a', height: 3, borderRadius: '3px 3px 0 0' } }}>
-                                {CONFIG_TABS.map(t => <Tab key={t} label={t} disableRipple />)}
-                            </Tabs>
+
+                        {/* Sub-header — shows which endpoint is being called */}
+                        <Box sx={{ px: 3, py: 1.5, bgcolor: '#f0f7ff', borderBottom: '1px solid #bfdbfe', flexShrink: 0 }}>
+                            {/* <Typography variant="caption" color="primary.main" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+                                PUT /vendor/configure/?vendor_id={configVendor.id}
+                            </Typography> */}
                         </Box>
-                        <Box sx={{ flex: 1, overflowY: 'auto', px: 3, py: 2.5 }}>
-                            {configError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setConfigError(null)}>{configError}</Alert>}
-                            {renderConfigTab()}
+
+                        {/* Body */}
+                        <Box sx={{ flex: 1, overflowY: 'auto', px: 3, py: 3 }}>
+                            {/* Backend error */}
+                            {configError && (
+                                <Alert severity="error" sx={{ mb: 2.5, borderRadius: 2 }} onClose={() => setConfigError(null)}>
+                                    {configError}
+                                </Alert>
+                            )}
+                            {/* Backend success */}
+                            {configSuccess && (
+                                <Alert severity="success" sx={{ mb: 2.5, borderRadius: 2, fontWeight: 600 }} onClose={() => setConfigSuccess(null)}>
+                                    {configSuccess}
+                                </Alert>
+                            )}
+
+                            <Typography variant="subtitle1" fontWeight={700} mb={0.5}>Transaction Controls</Typography>
+                            <Typography variant="body2" color="text.secondary" mb={2.5}>
+                                Set limits and commission for this vendor. Leave a field empty to inherit from parent defaults.
+                            </Typography>
+
+                            <Stack spacing={2.5}>
+                                {/* Commission Rate */}
+                                <TextField
+                                    fullWidth
+                                    label="Commission Rate (%)"
+                                    type="number"
+                                    placeholder="e.g. 5"
+                                    value={configForm.commission_rate}
+                                    onChange={e => setConfigForm(p => ({ ...p, commission_rate: e.target.value }))}
+                                    sx={inputSx}
+                                    helperText="Percentage commission applied to transactions"
+                                    inputProps={{ min: 0, max: 100, step: 0.01 }}
+                                />
+
+                                <Divider />
+
+                                {/* Funding Cap */}
+                                <TextField
+                                    fullWidth
+                                    label="Funding Cap (₦)"
+                                    type="number"
+                                    placeholder="e.g. 1000000"
+                                    value={configForm.funding_cap}
+                                    onChange={e => setConfigForm(p => ({ ...p, funding_cap: e.target.value }))}
+                                    sx={inputSx}
+                                    helperText="Maximum wallet balance this vendor can hold"
+                                    inputProps={{ min: 0 }}
+                                />
+
+                                {/* Transaction Max */}
+                                <TextField
+                                    fullWidth
+                                    label="Transaction Max (₦)"
+                                    type="number"
+                                    placeholder="e.g. 50000"
+                                    value={configForm.transaction_max}
+                                    onChange={e => setConfigForm(p => ({ ...p, transaction_max: e.target.value }))}
+                                    sx={inputSx}
+                                    helperText="Maximum single transaction value"
+                                    inputProps={{ min: 0 }}
+                                />
+
+                                {/* Monthly Target */}
+                                <TextField
+                                    fullWidth
+                                    label="Monthly Target (₦)"
+                                    type="number"
+                                    placeholder="e.g. 2000000"
+                                    value={configForm.monthly_target}
+                                    onChange={e => setConfigForm(p => ({ ...p, monthly_target: e.target.value }))}
+                                    sx={inputSx}
+                                    helperText="Monthly transaction volume target"
+                                    inputProps={{ min: 0 }}
+                                />
+
+                                {/* Current values preview */}
+                                <Box sx={{ p: 2, bgcolor: '#f8faff', borderRadius: 2, border: '1px solid #e2e8f0' }}>
+                                    <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" mb={1}>CURRENT VALUES ON VENDOR</Typography>
+                                    <Grid container spacing={1}>
+                                        {[
+                                            { label: 'Commission', value: (configVendor as any).commission_rate ? `${(configVendor as any).commission_rate}%` : '—' },
+                                            { label: 'Funding Cap', value: (configVendor as any).funding_cap ? formatCurrency((configVendor as any).funding_cap) : '—' },
+                                            { label: 'Txn Max', value: (configVendor as any).transaction_max ? formatCurrency((configVendor as any).transaction_max) : '—' },
+                                            { label: 'Monthly Target', value: (configVendor as any).monthly_target ? formatCurrency((configVendor as any).monthly_target) : '—' },
+                                        ].map(item => (
+                                            <Grid item xs={6} key={item.label}>
+                                                <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                                                <Typography variant="body2" fontWeight={600}>{item.value}</Typography>
+                                            </Grid>
+                                        ))}
+                                    </Grid>
+                                </Box>
+                            </Stack>
                         </Box>
+
+                        {/* Footer */}
                         <Box sx={{ px: 3, py: 2, borderTop: '1px solid #e2e8f0', bgcolor: '#f8faff', flexShrink: 0 }}>
                             <Stack direction="row" spacing={1.5}>
                                 <Button fullWidth variant="outlined" onClick={closeConfig} sx={{ textTransform: 'none', borderRadius: 2, borderColor: '#cbd5e1', color: '#475569' }}>Cancel</Button>
-                                <Button fullWidth variant="contained" onClick={handleSaveConfig} disabled={savingConfig} sx={{ textTransform: 'none', borderRadius: 2, bgcolor: '#1e3a8a', fontWeight: 700, '&:hover': { bgcolor: '#1e40af' } }}>
-                                    {savingConfig ? <CircularProgress size={18} color="inherit" /> : 'Save changes'}
+                                <Button
+                                    fullWidth variant="contained"
+                                    onClick={handleSaveConfig}
+                                    disabled={savingConfig || Boolean(configSuccess)}
+                                    sx={{ textTransform: 'none', borderRadius: 2, bgcolor: '#1e3a8a', fontWeight: 700, '&:hover': { bgcolor: '#1e40af' } }}
+                                >
+                                    {savingConfig ? <CircularProgress size={18} color="inherit" /> : 'Save Configuration'}
                                 </Button>
                             </Stack>
                         </Box>

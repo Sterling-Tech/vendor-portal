@@ -235,7 +235,13 @@ export async function patch<T>(endpoint: string, data: any): Promise<T> {
 /**
  * DELETE request
  */
-export async function del<T>(endpoint: string): Promise<T> {
-    return makeApiCall<T>(endpoint, { method: 'DELETE' });
-}
+// export async function del<T>(endpoint: string): Promise<T> {
+//     return makeApiCall<T>(endpoint, { method: 'DELETE' });
+// }
 
+export async function del<T>(endpoint: string, data?: any): Promise<T> {
+    return makeApiCall<T>(endpoint, {
+        method: 'DELETE',
+        body: data !== undefined ? JSON.stringify(data) : undefined,
+    });
+}

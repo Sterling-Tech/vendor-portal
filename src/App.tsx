@@ -18,6 +18,7 @@ import Layout from './components/layout';
 import PointOfSale from './pages/POS/PointOfSale';
 import AgentConsole from './pages/Agents/AgentConsole';
 import PrepaidServices from './pages/Prepaid/PrepaidServices';
+import GroupManagement from './pages/Roles/Roles';
 import OtpVerify from './pages/Auth/Otp';
 
 // Enhanced theme
@@ -155,6 +156,16 @@ const App: React.FC = () => {
                                     <ProtectedRoute>
                                         <Layout>
                                             <PointOfSale />
+                                        </Layout>
+                                    </ProtectedRoute>
+                                }
+                            />
+                            <Route
+                                path="/roles"
+                                element={
+                                    <ProtectedRoute>
+                                        <Layout>
+                                            <GroupManagement />
                                         </Layout>
                                     </ProtectedRoute>
                                 }

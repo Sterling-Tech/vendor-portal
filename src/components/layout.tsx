@@ -137,6 +137,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         // { text: 'Wallets', icon: <AccountBalance />, path: '/tenants/wallets' },
         // { text: 'Agents', icon: <PeopleAlt />, path: '/agents' },
         // { text: 'POS', icon: <PointOfSale />, path: '/pos' },
+        { text: 'Roles and Permissions', icon: <PointOfSale />, path: '/roles' },
         { text: 'Settings', icon: <Settings />, path: '/settings' },
     ];
 

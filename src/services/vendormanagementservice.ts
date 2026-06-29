@@ -1,186 +1,119 @@
-/**
- * Vendor Management Service
- * Centralises all API calls for the VendorManagement feature.
- * Import and use these in your component instead of inline fetch calls.
- */
-import { get, post, patch, del } from './api';
-import { Tenant } from './tenantService';
-
-// export const API_BASE = 'http://188.166.161.13:8061';
-
-// ─── Shared helpers ────────────────────────────────────────────────────────────
-// export const buildHeaders = (): HeadersInit => {
-//     const token =
-//         typeof window !== 'undefined'
-//             ? localStorage.getItem('token') ||
-//               localStorage.getItem('access_token') ||
-//               localStorage.getItem('accessToken')
-//             : null;
-//     return {
-//         'Content-Type': 'application/json',
-//         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-//     };
-// };
+import { get, post, patch, del, put } from './api';
 
 export const buildQuery = <T extends object>(params?: T): string => {
     if (!params) return '';
-
     const q = new URLSearchParams();
-
     Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== '') {
-            q.append(k, String(v));
-        }
+        if (v !== undefined && v !== null && v !== '') q.append(k, String(v));
     });
-
     return q.toString() ? `?${q.toString()}` : '';
 };
 
-// /** Generic fetch wrapper — throws the parsed JSON body on non-ok responses */
-// const apiFetch = async <T>(path: string, options?: RequestInit): Promise<T> => {
-//     const res = await fetch(`${API_BASE}${path}`, {
-//         headers: buildHeaders(),
-//         ...options,
-//     });
-//     const data = await res.json().catch(() => ({}));
-//     if (!res.ok) throw data;
-//     return data as T;
-// };
-
 // ─── Types ─────────────────────────────────────────────────────────────────────
 export interface VendorListParams {
-    hierachy?: string;
-    account_status?: string;
-    status?: string;
-    search?: string;
-    start_date?: string;
-    end_date?: string;
+    hierachy?: string; account_status?: string; status?: string;
+    search?: string; start_date?: string; end_date?: string;
 }
-
 export interface TransactionParams {
-    vendor_id: number;
-    page?: number;
-    page_size?: number;
-    start_date?: string;
-    end_date?: string;
-    search?: string;
+    vendor_id: number; page?: number; page_size?: number;
+    start_date?: string; end_date?: string; search?: string;
 }
+export interface AnalyticsParams { start_date: string; end_date: string; }
 
-export interface AnalyticsParams {
-    start_date: string;
-    end_date: string;
-}
-
-export interface VendorConfigPayload {
-    commission_rate?: string;
+/** Fields accepted by PUT /vendor/configure/?vendor_id=X */
+export interface VendorConfigurePayload {
     funding_cap?: string;
     transaction_max?: string;
+    commission_rate?: string;
     monthly_target?: string;
+}
+
+/** Legacy wider payload (kept for backward compat) */
+export interface VendorConfigPayload extends VendorConfigurePayload {
     account_status?: string;
-    // API / rate-limit fields (stored in configuration blob if backend supports it)
     api_rate_limit_per_minute?: string;
     api_rate_limit_per_day?: string;
     webhook_url?: string;
     enable_api_access?: boolean;
 }
 
+export interface FundWalletPayload {
+    vendor: number;
+    amount: number | string;
+}
+
 export interface CreateVendorPayload {
-    hierachy: string;
-    related_vendor?: number | string;
-    business_name: string;
-    email: string;
-    phone_number: string;
-    domain: string;
-    sub_domain?: string;
-    slug?: string;
-    trial_ends?: string;
-    address: string;
-    city: string;
-    state: string;
-    country?: string;
-    postal_code: string;
-    description?: string;
-    industry?: string;
-    category?: string;
-    website?: string;
-    contact_name?: string;
-    email1?: string;
-    email2?: string;
-    registration_number?: string;
-    cac_registration_number?: string;
-    owner_name?: string;
-    dob?: string;
-    nationality?: string;
-    id_type?: string;
-    id_number?: string;
-    owner_address?: string;
-    bank_name?: string;
-    account_name?: string;
-    account_number?: string;
-    funding_cap?: string;
-    transaction_max?: string;
-    commission_rate?: string;
-    monthly_target?: string;
-    entity_name?: string;
-    company_website?: string;
-    company_address?: string;
-    signatory_name?: string;
-    signatory_phone_number?: string;
-    signatory_email?: string;
+    hierachy: string; related_vendor?: number | string;
+    business_name: string; email: string; phone_number: string; domain: string;
+    sub_domain?: string; slug?: string; trial_ends?: string;
+    address: string; city: string; state: string; country?: string; postal_code: string;
+    description?: string; industry?: string; category?: string; website?: string;
+    contact_name?: string; email1?: string; email2?: string;
+    registration_number?: string; cac_registration_number?: string;
+    owner_name?: string; dob?: string; nationality?: string;
+    id_type?: string; id_number?: string; owner_address?: string;
+    bank_name?: string; account_name?: string; account_number?: string;
+    funding_cap?: string; transaction_max?: string;
+    commission_rate?: string; monthly_target?: string;
+    entity_name?: string; company_website?: string; company_address?: string;
+    signatory_name?: string; signatory_phone_number?: string; signatory_email?: string;
     [key: string]: any;
 }
 
-
-
-// ─── Service object ────────────────────────────────────────────────────────────
+// ─── Service ───────────────────────────────────────────────────────────────────
 export const vendorManagementService = {
-    /** Fetch all related child vendors with optional filters */
-    getRelatedVendors(params?: VendorListParams) {
-        return get<any>(`/vendor/retrieve/related-children/${buildQuery(params)}`);
-    },
+    /** All related child vendors with optional filters */
+    getRelatedVendors: (params?: VendorListParams) =>
+        get<any>(`/vendor/retrieve/related-children/${buildQuery(params)}`),
 
-    /** Fetch summary analytics for the stat cards */
-    getAnalytics(params: AnalyticsParams) {
-        return get<{
-            total_balance: number;
-            total_transactions: number;
-            processed_today: number;
-            active: number;
-        }>(`/vendor/children/analytics/${buildQuery(params)}`);
-    },
+    /** Analytics for the stat cards */
+    getAnalytics: (params: AnalyticsParams) =>
+        get<{ total_balance: number; total_transactions: number; processed_today: number; active: number }>(
+            `/vendor/children/analytics/${buildQuery(params)}`
+        ),
 
-    /** Fetch direct children of a specific vendor */
-    getVendorChildren(vendorId: number) {
-        return get<any>(`/vendor/retrieve/related-children/?vendor_id=${vendorId}`);
-    },
+    /** Direct children of a specific vendor */
+    getVendorChildren: (vendorId: number) =>
+        get<any>(`/vendor/retrieve/related-children/?vendor_id=${vendorId}`),
 
-    /** Paginated transactions for a specific vendor */
-    getVendorTransactions(params: TransactionParams) {
-        return get<{
-            count: number;
-            next: string | null;
-            previous: string | null;
-            results: any[];
-        }>(`/vendor/retrieve-children/transactions/${buildQuery(params as any)}`);
-    },
+    /** Paginated transactions for a vendor */
+    getVendorTransactions: (params: TransactionParams) =>
+        get<{ count: number; next: string | null; previous: string | null; results: any[] }>(
+            `/vendor/retrieve-children/transactions/${buildQuery(params as any)}`
+        ),
 
     /** Create a new vendor / sub-vendor / agent / cashier / POS */
-    createVendor(payload: CreateVendorPayload) {
-        return post<any>('/vendor/create/', payload);
-    },
+    createVendor: (payload: CreateVendorPayload) =>
+        post<any>('/vendor/create/', payload),
 
-    /** Update vendor configuration (commission, limits, API settings etc.) */
-    updateVendorConfig(vendorId: number, payload: VendorConfigPayload) {
-        return patch<any>(`/vendor/update/${vendorId}/`, payload);
-    },
+    /**
+     * Configure vendor limits & commissions.
+     * PUT /vendor/configure/?vendor_id={id}
+     * Accepted fields: funding_cap, transaction_max, commission_rate, monthly_target
+     */
+    configureVendor: (vendorId: number, payload: VendorConfigurePayload) =>
+        // The api module may not expose `put`; we use post with method override.
+        // If your api.ts already has a `put` export, replace this with put(...)
+        put<any>(`/vendor/configure/?vendor_id=${vendorId}`, payload),
+
+    /**
+     * Fund a vendor's wallet.
+     * POST /vendor/wallet/load/
+     * Payload: { vendor: id, amount: number }
+     */
+    fundWallet: (payload: FundWalletPayload) =>
+        post<any>('/vendor/wallet/load/', payload),
 
     /** Hard-delete a vendor */
-    deleteVendor(vendorId: number) {
-        return del<void>(`/vendor/delete/${vendorId}/`);
-    },
+    deleteVendor: (vendorId: number) =>
+        del<void>(`/vendor/delete/${vendorId}/`),
+
+    // ── kept for backward compat ───────────────────────────────────────────────
+    updateVendorConfig: (vendorId: number, payload: VendorConfigPayload) =>
+        patch<any>(`/vendor/update/${vendorId}/`, payload),
 };
 
-/** Extract a human-readable error from whatever shape DRF returns */
+/** Extract a human-readable message from any DRF error shape */
 export const extractBackendError = (data: any): string => {
     if (!data || typeof data !== 'object') return 'An unexpected error occurred';
     if (typeof data.detail === 'string') return data.detail;
@@ -191,6 +124,5 @@ export const extractBackendError = (data: any): string => {
     const msgs: string[] = [];
     for (const [k, v] of Object.entries(data))
         if (Array.isArray(v)) msgs.push(`${k}: ${(v as string[]).join(', ')}`);
-    if (msgs.length) return msgs.join(' | ');
-    return 'An unexpected error occurred';
+    return msgs.length ? msgs.join(' | ') : 'An unexpected error occurred';
 };
