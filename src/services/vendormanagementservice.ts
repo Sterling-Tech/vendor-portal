@@ -42,6 +42,35 @@ export interface FundWalletPayload {
     amount: number | string;
 }
 
+/** Payload accepted by POST /vendor/request-funding/ */
+export interface RequestFundingPayload {
+    amount: number | string;
+}
+
+/** Vendor summary embedded in a funding-request record */
+export interface FundingRequestVendor {
+    id: number;
+    email: string;
+    business_name: string;
+    account_status: string;
+    hierachy: string;
+}
+
+/** A single funding-request record returned by /vendor/request-funding/ */
+export interface FundingRequest {
+    id: number;
+    transaction_ref: string;
+    vendor: FundingRequestVendor;
+    amount: string;
+    status: string;
+    request_time: string;
+}
+
+export interface FundingRequestListParams {
+    page?: number;
+    page_size?: number;
+}
+
 export interface CreateVendorPayload {
     hierachy: string; related_vendor?: number | string;
     business_name: string; email: string; phone_number: string; domain: string;
@@ -97,10 +126,25 @@ export const vendorManagementService = {
         put<any>(`/vendor/configure/?vendor_id=${vendorId}`, payload),
 
     /**
-     * Fund a vendor's wallet.
-     * POST /vendor/wallet/load/
-     * Payload: { vendor: id, amount: number }
+     * Request wallet funding for the current vendor.
+     * POST /vendor/request-funding/
+     * Payload: { amount }
+     * N.B. This only *requests* funding — no actual funding occurs until approved.
      */
+    requestWalletFunding: (payload: RequestFundingPayload) =>
+        post<FundingRequest>('/vendor/request-funding/', payload),
+
+    /**
+     * Retrieve funding requests.
+     * GET /vendor/request-funding/
+     * Vendor admins see only their own requests; system admins see all.
+     */
+    getFundingRequests: (params?: FundingRequestListParams) =>
+        get<{ count: number; next: string | null; previous: string | null; results: FundingRequest[] }>(
+            `/vendor/request-funding/${buildQuery(params)}`
+        ),
+
+    /** @deprecated kept for backward compat — use requestWalletFunding instead */
     fundWallet: (payload: FundWalletPayload) =>
         post<any>('/vendor/wallet/load/', payload),
 

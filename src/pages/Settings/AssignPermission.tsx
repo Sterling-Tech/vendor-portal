@@ -117,7 +117,7 @@ export default function AssignPermission() {
             </Box>
         );
     }
-
+console.log(permissions, "permissions");
     return (
         <Card sx={{ p: 3 }}>
             <Typography
