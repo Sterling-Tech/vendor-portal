@@ -391,7 +391,7 @@ const VendorManagement: React.FC = () => {
         setFundingWallet(true); setFundError(null);
         try {
             // POST /vendor/request-funding/  — only sends the funding request, no actual funding occurs yet
-            const result = await vendorManagementService.requestWalletFunding({ amount: fundForm.amount });
+            const result = await vendorManagementService.requestWalletFunding({ vendor: fundWalletVendor?.id , amount: fundForm.amount });
             // Close the request form and show a nice success modal with the transaction details returned
             const fundedVendorName = fundWalletVendor.business_name;
             closeFundWallet();

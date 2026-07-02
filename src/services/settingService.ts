@@ -41,13 +41,19 @@ export interface GrantPermissionPayload {
     user: string;
     permissions: number[];
 }
+// export interface PermissionItem {
+//     permission: {
+//         id: number;
+//         name: string;
+//         description: string;
+//         code: string;
+//     };
+// }
 export interface PermissionItem {
-    permission: {
         id: number;
         name: string;
         description: string;
         code: string;
-    };
 }
 export interface ChangePasswordPayload {
     old_password: string;
@@ -86,7 +92,7 @@ export const updateProfile = (data: UpdateProfilePayload) =>
     put<UserProfile>('/user/update-profile/', data);
 
 export const getPermissions = () => {
-    return get<PermissionItem[]>("/user/permissions/");
+    return get<PermissionItem[]>("/user/permissions/all");
 };
 export const grantPermissions = (
     data: GrantPermissionPayload

@@ -1,18 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress,
-    Collapse, Dialog, DialogContent, DialogTitle, Divider, FormControl,
+    Collapse, Dialog, DialogContent, DialogActions, Divider, FormControl,
     Grid, IconButton, InputLabel, MenuItem, Paper, Select, Stack, Tab,
     Table, TableBody, TableCell, TableHead, TablePagination, TableRow,
     Tabs, TextField, Typography, ListItemButton, ListItemText,
 } from '@mui/material';
 import {
     AccountBalance, ArrowBack, ArrowDropDown, ArrowForward, Business,
-    CheckCircle, ChevronRight, Close, Domain, Key, People, Receipt,
-    Refresh, SendOutlined, Settings, Speed,
+    CheckCircle, ChevronRight, Close, ContentCopy, Domain, ErrorOutline,
+    Key, People, Receipt, Refresh, Settings, AccountBalanceWallet,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { dashboardService, extractError } from '../../../services/dashboardService';
+import {
+    dashboardService, extractError,
+    FundWalletResult,
+} from '../../../services/dashboardService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Hierarchy  = 'vendor' | 'sub_vendor' | 'agent' | 'cashier' | 'pos';
@@ -50,9 +53,9 @@ const formatDate = (v?: string | null) => {
 };
 const statusColor = (s?: string): ChipColor => {
     switch ((s || '').toLowerCase()) {
-        case 'active': case 'success': return 'success';
+        case 'active': case 'success': case 'approved': case 'completed': return 'success';
         case 'pending': case 'review': return 'warning';
-        case 'failed': case 'inactive': case 'suspended': return 'error';
+        case 'failed': case 'inactive': case 'suspended': case 'rejected': return 'error';
         default: return 'default';
     }
 };
@@ -131,15 +134,18 @@ const buildVendorTree = (vendors: RelatedVendor[]) => {
 
 // ─── Dashboard groups ─────────────────────────────────────────────────────────
 const DASHBOARD_GROUPS: DashboardGroup[] = [
-    { id: 'vendors',     label: 'Vendors',     tableTitle: 'Recent Vendors',     description: 'All vendors in your hierarchy.',         hierarchy: 'vendor',     color: 'primary',   icon: <Business /> },
-    { id: 'sub_vendors', label: 'Sub-vendors', tableTitle: 'Recent Sub-vendors', description: 'Sub-vendors in your hierarchy.',          hierarchy: 'sub_vendor', color: 'success',   icon: <Domain /> },
-    { id: 'agents',      label: 'Agents',      tableTitle: 'Recent Agents',      description: 'Agents under this vendor hierarchy.',     hierarchy: 'agent',      color: 'warning',   icon: <People /> },
-    { id: 'cashiers',    label: 'Cashiers',    tableTitle: 'Recent Cashiers',    description: 'Cashiers under this vendor hierarchy.',   hierarchy: 'cashier',    color: 'info',      icon: <Receipt /> },
-    { id: 'pos',         label: 'POS',         tableTitle: 'Recent POS',         description: 'POS records under this vendor hierarchy.', hierarchy: 'pos',       color: 'secondary', icon: <AccountBalance /> },
+    { id: 'vendors',     label: 'Vendors',     tableTitle: 'Recent Vendors',     description: 'All vendors in your hierarchy.',          hierarchy: 'vendor',     color: 'primary',   icon: <Business /> },
+    { id: 'sub_vendors', label: 'Sub-vendors', tableTitle: 'Recent Sub-vendors', description: 'Sub-vendors in your hierarchy.',           hierarchy: 'sub_vendor', color: 'success',   icon: <Domain /> },
+    { id: 'agents',      label: 'Agents',      tableTitle: 'Recent Agents',      description: 'Agents under this vendor hierarchy.',      hierarchy: 'agent',      color: 'warning',   icon: <People /> },
+    { id: 'cashiers',    label: 'Cashiers',    tableTitle: 'Recent Cashiers',    description: 'Cashiers under this vendor hierarchy.',    hierarchy: 'cashier',    color: 'info',      icon: <Receipt /> },
+    { id: 'pos',         label: 'POS',         tableTitle: 'Recent POS',         description: 'POS records under this vendor hierarchy.', hierarchy: 'pos',        color: 'secondary', icon: <AccountBalance /> },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
-const MetricTile = ({ title, value, detail, icon, color = 'primary' }: { title: string; value: React.ReactNode; detail?: string; icon: React.ReactNode; color?: MuiColor }) => (
+const MetricTile = ({ title, value, detail, icon, color = 'primary' }: {
+    title: string; value: React.ReactNode; detail?: string;
+    icon: React.ReactNode; color?: MuiColor;
+}) => (
     <Paper variant="outlined" sx={{ p: 2, height: '100%', borderRadius: 1 }}>
         <Stack direction="row" justifyContent="space-between" spacing={2}>
             <Box>
@@ -150,6 +156,21 @@ const MetricTile = ({ title, value, detail, icon, color = 'primary' }: { title: 
             <Avatar sx={{ bgcolor: `${color}.light`, color: `${color}.main` }}>{icon}</Avatar>
         </Stack>
     </Paper>
+);
+
+/** A single labelled row inside the result dialogs */
+const ResultRow = ({ label, value }: { label: string; value: React.ReactNode }) => (
+    <Stack
+        direction="row" justifyContent="space-between" spacing={2}
+        sx={{ py: 0.9, borderBottom: '1px solid #f1f5f9' }}
+    >
+        <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
+            {label}
+        </Typography>
+        <Typography variant="body2" fontWeight={600} sx={{ textAlign: 'right', wordBreak: 'break-all' }}>
+            {value}
+        </Typography>
+    </Stack>
 );
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -182,27 +203,41 @@ const Dashboard: React.FC = () => {
     const [ledgerStartDate, setLedgerStartDate] = useState(defaultStartDate());
     const [ledgerEndDate, setLedgerEndDate] = useState(defaultEndDate());
 
-    // ── Vend for Customer dialog ──────────────────────────────────────────────
-    const [vendOpen, setVendOpen] = useState(false);
-    const [vendForm, setVendForm] = useState({ account_number: '', bill_type: 'prepaid', amount: '' });
-    const [vendLoading, setVendLoading] = useState(false);
-    const [vendError, setVendError] = useState<string | null>(null);
-    const [vendSuccess, setVendSuccess] = useState<string | null>(null);
+    // ── Fund Wallet dialog ────────────────────────────────────────────────────
+    const [fundOpen, setFundOpen] = useState(false);
+    const [fundAmount, setFundAmount] = useState('');
+    const [fundLoading, setFundLoading] = useState(false);
+    // null = no result yet; object = show result (success or error)
+    const [fundResult, setFundResult] = useState<
+        | { kind: 'success'; data: FundWalletResult }
+        | { kind: 'error'; message: string }
+        | null
+    >(null);
 
-    const handleVendSubmit = async () => {
-        setVendError(null);
-        if (!vendForm.account_number.trim()) { setVendError('Account number is required'); return; }
-        if (!vendForm.amount.trim() || isNaN(Number(vendForm.amount))) { setVendError('A valid amount is required'); return; }
-        setVendLoading(true);
+    const openFundDialog = () => { setFundAmount(''); setFundResult(null); setFundOpen(true); };
+    const closeFundDialog = () => { setFundOpen(false); setFundAmount(''); setFundResult(null); };
+    const closeFundResult = () => setFundResult(null);
+
+    const copyText = (text: string) => {
+        navigator.clipboard?.writeText(text).catch(() => {});
+    };
+
+    const handleFundSubmit = async () => {
+        if (!fundAmount.trim() || isNaN(Number(fundAmount)) || Number(fundAmount) <= 0) {
+            setFundResult({ kind: 'error', message: 'Please enter a valid amount greater than zero.' });
+            return;
+        }
+        setFundLoading(true);
         try {
-            const result = await dashboardService.vendForCustomer(vendForm);
-            setVendSuccess(`Vend successful! Ref: ${result?.transaction_ref || result?.reference || 'N/A'}`);
-            setVendForm({ account_number: '', bill_type: 'prepaid', amount: '' });
-            setVendOpen(false);
+            const data = await dashboardService.requestWalletFunding({ amount: fundAmount });
+            setFundOpen(false);                  // close the input dialog
+            setFundResult({ kind: 'success', data }); // open the result modal
+            setFundAmount('');
         } catch (err: any) {
-            setVendError(extractError(err));
+            setFundOpen(false);
+            setFundResult({ kind: 'error', message: extractError(err) });
         } finally {
-            setVendLoading(false);
+            setFundLoading(false);
         }
     };
 
@@ -210,15 +245,12 @@ const Dashboard: React.FC = () => {
     const currentVendorName = getCurrentVendorName();
     const currentGroup = DASHBOARD_GROUPS.find(g => g.id === activeGroup) || DASHBOARD_GROUPS[0];
 
-    // ── Fetches — all via dashboardService ────────────────────────────────────
+    // ── Fetches ───────────────────────────────────────────────────────────────
     const fetchWallet = useCallback(async () => {
         setWalletLoading(true);
-        try {
-            const data = await dashboardService.getWallet();
-            setWalletData(data);
-        } catch {
-            setWalletData({ balance: '0.00', wallet_type: { name: 'Wallet', description: '' } });
-        } finally { setWalletLoading(false); }
+        try { setWalletData(await dashboardService.getWallet()); }
+        catch { setWalletData({ balance: '0.00', wallet_type: { name: 'Wallet', description: '' } }); }
+        finally { setWalletLoading(false); }
     }, []);
 
     const fetchRelatedVendors = useCallback(async () => {
@@ -316,8 +348,8 @@ const Dashboard: React.FC = () => {
 
     const selectedChildrenTree = useMemo(() => buildVendorTree(selectedChildren), [selectedChildren]);
 
-    const globalWalletBalance = toNumber(walletData?.balance);
-    const selectedNetBalance  = selectedLedgerSummary.total_credits - selectedLedgerSummary.total_debits;
+    const globalWalletBalance   = toNumber(walletData?.balance);
+    const selectedNetBalance    = selectedLedgerSummary.total_credits - selectedLedgerSummary.total_debits;
     const selectedWalletBalance = selectedNetBalance || getWalletBalance(selectedVendor);
     const selectedChildrenCount = selectedChildren.length;
 
@@ -334,18 +366,21 @@ const Dashboard: React.FC = () => {
     }, [allVendors, tabCounts]);
 
     const quickActions = useMemo(() => [
-        { id: 'manage-orgs',  title: 'Manage Organisations', description: 'Create and manage vendor organisations', icon: <Business />,      path: '/tenants/vendors', color: 'primary.main' },
-        { id: 'wallet-ops',   title: 'Wallet Operations',    description: 'Balances, transfers, and settlement',  icon: <AccountBalance />,  path: '/transactions',    color: 'success.main' },
-        { id: 'api-keys',     title: 'API Keys',             description: 'Keys, webhooks, and access controls',  icon: <Key />,             path: '/settings',        color: 'info.main' },
-        { id: 'settings',     title: 'Settings',             description: 'Vendor profile and platform settings', icon: <Settings />,        path: '/settings',        color: 'secondary.main' },
-        { id: 'create',       title: 'Create New',           description: 'Vendor, sub-vendor, agent…',           icon: <Business />,        path: '/tenants/vendors', color: 'error.main' },
+        { id: 'manage-orgs',  title: 'Manage Organisations', description: 'Create and manage vendor organisations', icon: <Business />,        path: '/tenants/vendors', color: 'primary.main' },
+        { id: 'wallet-ops',   title: 'Wallet Operations',    description: 'Balances, transfers, and settlement',   icon: <AccountBalance />,  path: '/transactions',    color: 'success.main' },
+        { id: 'api-keys',     title: 'API Keys',             description: 'Keys, webhooks, and access controls',   icon: <Key />,             path: '/settings',        color: 'info.main' },
+        { id: 'settings',     title: 'Settings',             description: 'Vendor profile and platform settings',  icon: <Settings />,        path: '/settings',        color: 'secondary.main' },
+        { id: 'create',       title: 'Create New',           description: 'Vendor, sub-vendor, agent…',            icon: <Business />,        path: '/tenants/vendors', color: 'error.main' },
     ], []);
 
-    // ── Render ────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // RENDER
+    // ─────────────────────────────────────────────────────────────────────────
     return (
         <Box p={{ xs: 2, md: 3 }} sx={{
             '@keyframes tableSlideIn':  { from: { opacity: 0, transform: 'translateX(-28px)' }, to: { opacity: 1, transform: 'translateX(0)' } },
             '@keyframes detailSlideIn': { from: { opacity: 0, transform: 'translateX(36px)'  }, to: { opacity: 1, transform: 'translateX(0)' } },
+            '@keyframes popIn': { '0%': { opacity: 0, transform: 'scale(0.85)' }, '100%': { opacity: 1, transform: 'scale(1)' } },
         }}>
 
             {/* ── Page header ── */}
@@ -365,20 +400,19 @@ const Dashboard: React.FC = () => {
                     >
                         Refresh
                     </Button>
-                    {/* ── Vend for Customer button ── */}
+                    {/* ── Fund Wallet button ── */}
                     <Button
                         variant="contained"
-                        startIcon={<SendOutlined />}
-                        onClick={() => { setVendError(null); setVendOpen(true); }}
-                        sx={{ bgcolor: '#1635a3', '&:hover': { bgcolor: '#191580' }, textTransform: 'none', borderRadius: 2 }}
+                        startIcon={<AccountBalanceWallet />}
+                        onClick={openFundDialog}
+                        sx={{ bgcolor: '#1e3a8a', '&:hover': { bgcolor: '#1e40af' }, textTransform: 'none', borderRadius: 2, fontWeight: 700 }}
                     >
-                        Vend for Customer
+                        Fund Wallet
                     </Button>
                 </Stack>
             </Stack>
 
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-            {vendSuccess && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setVendSuccess(null)}>{vendSuccess}</Alert>}
 
             {/* ── Metric tiles ── */}
             <Grid container spacing={3} sx={{ mb: 3 }}>
@@ -450,7 +484,7 @@ const Dashboard: React.FC = () => {
                                     </TableHead>
                                     <TableBody>
                                         {currentVendors.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map(vendor => (
-                                            <TableRow key={vendor.id} hover selected={false} sx={{ cursor: 'pointer' }} onClick={() => handleSelectVendor(vendor)}>
+                                            <TableRow key={vendor.id} hover sx={{ cursor: 'pointer' }} onClick={() => handleSelectVendor(vendor)}>
                                                 <TableCell>
                                                     <Typography variant="subtitle2">{vendor.business_name}</Typography>
                                                     <Typography variant="caption" color="text.secondary">Parent: {vendor.related_vendor?.business_name || 'None'}</Typography>
@@ -534,7 +568,6 @@ const Dashboard: React.FC = () => {
                                                     </Grid>
                                                 </Collapse>
                                             </Paper>
-                                            {/* Transactions panel */}
                                             <Paper variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
                                                 <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
                                                     <Typography variant="subtitle1" fontWeight={700}>Recent Transactions</Typography>
@@ -640,67 +673,235 @@ const Dashboard: React.FC = () => {
             </Card>
 
             {/* ══════════════════════════════════════════════════════════════════
-                VEND FOR CUSTOMER DIALOG
+                FUND WALLET INPUT DIALOG
             ══════════════════════════════════════════════════════════════════ */}
-            <Dialog open={vendOpen} onClose={() => { setVendOpen(false); setVendError(null); }} maxWidth="xs" fullWidth
-                PaperProps={{ sx: { borderRadius: 3 } }}>
-                <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 0 }}>
-                    <Box>
-                        <Typography variant="h6" fontWeight={700}>Vend for Customer</Typography>
-                        <Typography variant="caption" color="text.secondary">POST /vendor/vend/</Typography>
-                    </Box>
-                    <IconButton onClick={() => { setVendOpen(false); setVendError(null); }} size="small"><Close fontSize="small" /></IconButton>
-                </DialogTitle>
-
-                <DialogContent sx={{ pt: 2 }}>
-                    {vendError && (
-                        <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setVendError(null)}>
-                            {vendError}
-                        </Alert>
-                    )}
-
-                    <Stack spacing={2.5} mt={1}>
-                        <TextField
-                            fullWidth required label="Account Number"
-                            placeholder="e.g. AAGR210842440"
-                            value={vendForm.account_number}
-                            onChange={e => { setVendForm(p => ({ ...p, account_number: e.target.value })); setVendError(null); }}
-                            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8faff' } }}
-                        />
-
-                        <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8faff' } }}>
-                            <InputLabel>Bill Type</InputLabel>
-                            <Select value={vendForm.bill_type} label="Bill Type"
-                                onChange={e => setVendForm(p => ({ ...p, bill_type: e.target.value }))}>
-                                <MenuItem value="prepaid">Prepaid</MenuItem>
-                                <MenuItem value="postpaid">Postpaid</MenuItem>
-                                <MenuItem value="data">Data</MenuItem>
-                                <MenuItem value="airtime">Airtime</MenuItem>
-                                <MenuItem value="utility">Utility</MenuItem>
-                            </Select>
-                        </FormControl>
-
-                        <TextField
-                            fullWidth required label="Amount (₦)"
-                            placeholder="e.g. 120"
-                            type="number"
-                            value={vendForm.amount}
-                            onChange={e => { setVendForm(p => ({ ...p, amount: e.target.value })); setVendError(null); }}
-                            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8faff' } }}
-                        />
+            <Dialog
+                open={fundOpen}
+                onClose={closeFundDialog}
+                maxWidth="xs"
+                fullWidth
+                PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
+            >
+                {/* Header */}
+                <Box sx={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', px: 3, pt: 3, pb: 2.5, color: '#fff' }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                        <Box>
+                            <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
+                                <AccountBalanceWallet sx={{ fontSize: 22 }} />
+                                <Typography variant="h6" fontWeight={700} color="#fff">Fund Wallet</Typography>
+                            </Stack>
+                            <Typography variant="caption" sx={{ color: '#93c5fd' }}>
+                                This sends a funding request — no funds move until approved.
+                            </Typography>
+                        </Box>
+                        <IconButton onClick={closeFundDialog} size="small" sx={{ color: '#93c5fd', '&:hover': { color: '#fff' } }}>
+                            <Close fontSize="small" />
+                        </IconButton>
                     </Stack>
+                </Box>
 
-                    <Stack direction="row" spacing={1.5} mt={3}>
-                        <Button fullWidth variant="outlined" onClick={() => { setVendOpen(false); setVendError(null); }}
-                            sx={{ borderRadius: 2, textTransform: 'none' }}>
-                            Cancel
-                        </Button>
-                        <Button fullWidth variant="contained" onClick={handleVendSubmit} disabled={vendLoading}
-                            sx={{ borderRadius: 2, textTransform: 'none', bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' } }}>
-                            {vendLoading ? <CircularProgress size={20} color="inherit" /> : 'Submit Vend'}
-                        </Button>
+                <DialogContent sx={{ pt: 3, pb: 1 }}>
+                    <Stack spacing={2.5}>
+                        <TextField
+                            fullWidth required
+                            label="Amount (₦)"
+                            type="number"
+                            placeholder="e.g. 10000"
+                            value={fundAmount}
+                            onChange={e => setFundAmount(e.target.value)}
+                            autoFocus
+                            inputProps={{ min: 1 }}
+                            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f3f4f8' } }}
+                            helperText="Enter the amount you want to request for your wallet"
+                        />
+                        {fundAmount && Number(fundAmount) > 0 && (
+                            <Box sx={{ p: 2, bgcolor: '#eff6ff', borderRadius: 2, border: '1px solid #bfdbfe' }}>
+                                <Typography variant="body2" color="primary.main" fontWeight={700}>
+                                    You are requesting{' '}
+                                    {new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(Number(fundAmount))}
+                                    {' '}for your wallet.
+                                </Typography>
+                            </Box>
+                        )}
                     </Stack>
                 </DialogContent>
+
+                <DialogActions sx={{ px: 3, py: 2.5, gap: 1 }}>
+                    <Button fullWidth variant="outlined" onClick={closeFundDialog} sx={{ borderRadius: 2, textTransform: 'none' }}>
+                        Cancel
+                    </Button>
+                    <Button
+                        fullWidth variant="contained"
+                        onClick={handleFundSubmit}
+                        disabled={fundLoading || !fundAmount || Number(fundAmount) <= 0}
+                        sx={{ borderRadius: 2, textTransform: 'none', bgcolor: '#1e3a8a', '&:hover': { bgcolor: '#1e40af' }, fontWeight: 700 }}
+                    >
+                        {fundLoading ? <CircularProgress size={18} color="inherit" /> : 'Submit Request'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* ══════════════════════════════════════════════════════════════════
+                FUND WALLET RESULT MODAL — success or error
+            ══════════════════════════════════════════════════════════════════ */}
+            <Dialog
+                open={Boolean(fundResult)}
+                onClose={closeFundResult}
+                maxWidth="xs"
+                fullWidth
+                PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
+            >
+                {/* ── SUCCESS ── */}
+                {fundResult?.kind === 'success' && (
+                    <Box>
+                        <Box sx={{
+                            background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+                            px: 3, pt: 4, pb: 3, textAlign: 'center', position: 'relative',
+                        }}>
+                            <IconButton
+                                onClick={closeFundResult} size="small"
+                                sx={{ position: 'absolute', top: 12, right: 12, color: '#bbf7d0' }}
+                            >
+                                <Close fontSize="small" />
+                            </IconButton>
+                            <Box sx={{
+                                width: 68, height: 68, borderRadius: '50%',
+                                bgcolor: 'rgba(255,255,255,0.18)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                mx: 'auto', mb: 1.5,
+                                animation: 'popIn 320ms ease',
+                            }}>
+                                <CheckCircle sx={{ fontSize: 38, color: '#fff' }} />
+                            </Box>
+                            <Typography variant="h6" fontWeight={800} color="#fff">
+                                Funding Request Submitted!
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: '#bbf7d0', mt: 0.5 }}>
+                                {new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(Number(fundResult.data.amount))} requested for {fundResult.data.vendor?.business_name}
+                            </Typography>
+                        </Box>
+
+                        <DialogContent sx={{ pt: 2.5, pb: 1 }}>
+                            {/* Amount hero */}
+                            <Box sx={{ textAlign: 'center', py: 1.5, mb: 2, bgcolor: '#f0fdf4', borderRadius: 2, border: '1px solid #bbf7d0' }}>
+                                <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                    Requested Amount
+                                </Typography>
+                                <Typography variant="h4" fontWeight={800} color="success.main">
+                                    {new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(Number(fundResult.data.amount))}
+                                </Typography>
+                                <Chip label={fundResult.data.status.toUpperCase()} size="small" color={statusColor(fundResult.data.status)} sx={{ fontWeight: 800, mt: 0.5 }} />
+                            </Box>
+
+                            <Stack spacing={0}>
+                                <ResultRow label="Request ID" value={`#${fundResult.data.id}`} />
+                                <ResultRow label="Vendor" value={fundResult.data.vendor?.business_name} />
+                                <ResultRow label="Email" value={fundResult.data.vendor?.email} />
+                                <ResultRow
+                                    label="Vendor Status"
+                                    value={<Chip label={fundResult.data.vendor?.account_status} size="small" color={statusColor(fundResult.data.vendor?.account_status)} />}
+                                />
+                                <ResultRow
+                                    label="Hierarchy"
+                                    value={<Chip label={hierarchyLabel(fundResult.data.vendor?.hierachy)} size="small" color={hierarchyColor(fundResult.data.vendor?.hierachy)} variant="outlined" />}
+                                />
+                                <ResultRow label="Requested At" value={formatDate(fundResult.data.request_time)} />
+                            </Stack>
+
+                            {/* Transaction ref with copy */}
+                            <Box sx={{ mt: 2, p: 1.5, bgcolor: '#f8faff', borderRadius: 2, border: '1px solid #e2e8f0' }}>
+                                <Typography variant="caption" color="text.secondary" fontWeight={700} display="block" mb={0.5}>
+                                    TRANSACTION REFERENCE
+                                </Typography>
+                                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                    <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#475569', wordBreak: 'break-all', flex: 1 }}>
+                                        {fundResult.data.transaction_ref}
+                                    </Typography>
+                                    <IconButton size="small" onClick={() => copyText(fundResult.data.transaction_ref)}>
+                                        <ContentCopy sx={{ fontSize: 14, color: '#94a3b8' }} />
+                                    </IconButton>
+                                </Stack>
+                            </Box>
+
+                            <Box sx={{ mt: 2, p: 1.5, bgcolor: '#eff6ff', borderRadius: 2, border: '1px solid #bfdbfe' }}>
+                                <Typography variant="caption" color="primary.main">
+                                    Your request is <strong>{fundResult.data.status}</strong>. No funds have moved yet — a system admin will review and approve the request.
+                                </Typography>
+                            </Box>
+                        </DialogContent>
+
+                        <DialogActions sx={{ px: 3, pb: 3 }}>
+                            <Button
+                                fullWidth variant="contained" onClick={closeFundResult}
+                                sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' } }}
+                            >
+                                Done
+                            </Button>
+                        </DialogActions>
+                    </Box>
+                )}
+
+                {/* ── ERROR ── */}
+                {fundResult?.kind === 'error' && (
+                    <Box>
+                        <Box sx={{
+                            background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                            px: 3, pt: 4, pb: 3, textAlign: 'center', position: 'relative',
+                        }}>
+                            <IconButton
+                                onClick={closeFundResult} size="small"
+                                sx={{ position: 'absolute', top: 12, right: 12, color: '#fecaca' }}
+                            >
+                                <Close fontSize="small" />
+                            </IconButton>
+                            <Box sx={{
+                                width: 68, height: 68, borderRadius: '50%',
+                                bgcolor: 'rgba(255,255,255,0.18)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                mx: 'auto', mb: 1.5,
+                                animation: 'popIn 320ms ease',
+                            }}>
+                                <ErrorOutline sx={{ fontSize: 38, color: '#fff' }} />
+                            </Box>
+                            <Typography variant="h6" fontWeight={800} color="#fff">
+                                Funding Request Failed
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: '#fecaca', mt: 0.5 }}>
+                                The server rejected your request.
+                            </Typography>
+                        </Box>
+
+                        <DialogContent sx={{ pt: 2.5 }}>
+                            <Box sx={{ p: 2, bgcolor: '#fef2f2', borderRadius: 2, border: '1px solid #fecaca', mb: 2 }}>
+                                <Typography variant="body2" color="error.dark" fontWeight={700} mb={0.5}>
+                                    Reason from server:
+                                </Typography>
+                                <Typography variant="body2" color="error.main">
+                                    {fundResult.message}
+                                </Typography>
+                            </Box>
+                            <Typography variant="caption" color="text.secondary">
+                                Please check the amount or your account status and try again.
+                            </Typography>
+                        </DialogContent>
+
+                        <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+                            <Button
+                                fullWidth variant="outlined" color="error"
+                                onClick={() => { closeFundResult(); setFundAmount(''); setFundOpen(true); }}
+                                sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700 }}
+                            >
+                                Try Again
+                            </Button>
+                            <Button
+                                fullWidth variant="contained" onClick={closeFundResult}
+                                sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, bgcolor: '#dc2626', '&:hover': { bgcolor: '#b91c1c' } }}
+                            >
+                                Close
+                            </Button>
+                        </DialogActions>
+                    </Box>
+                )}
             </Dialog>
         </Box>
     );

@@ -199,65 +199,28 @@ console.log(permissions, "permissions");
                     >
                         {/* {permissions.map((permission) => ( */}
                         {permissions.map((item) => (
-                            
-                            <Box
-                                key={item.permission.id}
-                                mb={2}
-                            >
-                                <Stack
-                                    direction="row"
-                                    alignItems="center"
-                                    spacing={2}
-                                >
+                            <Box key={item.id} mb={2}>
+                                <Stack direction="row" spacing={2}>
                                     <Checkbox
-                                        checked={selectedPermissions.includes(
-                                            item.permission.id
-                                        )}
-                                        onChange={() =>
-                                            handlePermissionToggle(
-                                                item.permission.id
-                                            )
-                                        }
+                                        checked={selectedPermissions.indexOf(item.id) !== -1}
+                                        onChange={() => handlePermissionToggle(item.id)}
                                     />
 
-                                    <Box
-                                        sx={{
-                                            flex: 1,
-                                        }}
-                                    >
-                                        <Typography
-                                            fontWeight={
-                                                600
-                                            }
-                                        >
-                                            {
-                                                item.permission.name
-                                            }
+                                    <Box flex={1}>
+                                        <Typography fontWeight={600}>
+                                            {item.name}
                                         </Typography>
 
-                                        <Typography
-                                            variant="body2"
-                                            color="text.secondary"
-                                        >
-                                            {
-                                                item.permission.description
-                                            }
+                                        <Typography variant="body2">
+                                            {item.description}
                                         </Typography>
                                     </Box>
 
                                     <Chip
-                                        label={
-                                            item.permission.code
-                                        }
+                                        label={item.code}
                                         size="small"
-                                        color="primary"
-                                        variant="outlined"
                                     />
                                 </Stack>
-
-                                <Divider
-                                    sx={{ mt: 1 }}
-                                />
                             </Box>
                         ))}
                     </Card>

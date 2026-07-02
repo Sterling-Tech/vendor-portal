@@ -23,10 +23,6 @@ import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
 import {
-    DataGrid, GridColDef,
-} from "@mui/x-data-grid";
-
-import {
     addMemberToGroup, deleteGroup, grantGroupPermissions,
     Group, GroupDetails, retriveGroups, viewGroup,
     createGroup, editGroup,
@@ -160,32 +156,49 @@ export default function GroupManagement() {
     useEffect(() => { loadGroups(); }, []);
 
     const loadGroups = async () => {
-        try {
-            setLoading(true); setPageError(null);
-            const data = await retriveGroups();
-            setGroups(data);
-            setLastRefreshed(new Date());
-        } catch (err: any) {
-            setPageError(extractError(err));
-        } finally {
-            setLoading(false);
-        }
-    };
+    try {
+        setLoading(true);
+        setPageError(null);
+
+        const data = await retriveGroups();
+
+        console.log("Groups response:", data);
+
+        setGroups(Array.isArray(data) ? data : []);
+        setLastRefreshed(new Date());
+    } catch (err: any) {
+        setPageError(extractError(err));
+        setGroups([]);
+    } finally {
+        setLoading(false);
+    }
+};
 
     // ── Derived / filtered data ───────────────────────────────────────────────
     const filtered = useMemo(() => {
+    const list = Array.isArray(groups) ? groups : [];
+
+    return list.filter(g => {
         const term = search.trim().toLowerCase();
-        return groups.filter(g => {
-            const matchSearch =
-                !term ||
-                g.name?.toLowerCase().includes(term) ||
-                (g as any).description?.toLowerCase().includes(term);
-            const ts = new Date((g as any).created_at).getTime();
-            const matchStart = !startDate || ts >= new Date(`${startDate}T00:00:00`).getTime();
-            const matchEnd = !endDate || ts <= new Date(`${endDate}T23:59:59`).getTime();
-            return matchSearch && matchStart && matchEnd;
-        });
-    }, [groups, search, startDate, endDate]);
+
+        const matchSearch =
+            !term ||
+            g.name?.toLowerCase().includes(term) ||
+            (g as any).description?.toLowerCase().includes(term);
+
+        const ts = new Date((g as any).created_at).getTime();
+
+        const matchStart =
+            !startDate ||
+            ts >= new Date(`${startDate}T00:00:00`).getTime();
+
+        const matchEnd =
+            !endDate ||
+            ts <= new Date(`${endDate}T23:59:59`).getTime();
+
+        return matchSearch && matchStart && matchEnd;
+    });
+}, [groups, search, startDate, endDate]);
 
     const sorted = useMemo(() => {
         return [...filtered].sort((a, b) => {
@@ -227,7 +240,7 @@ export default function GroupManagement() {
         try {
             setLoading(true);
             const group = await viewGroup(groupId);
-            setSelectedvGroup(group); setSelectedGroup(group); setOpenView(true);
+            setSelectedvGroup(group ?? null); setSelectedGroup((group as any) ?? null); setOpenView(true);
         } catch (err: any) { showToast(extractError(err), "error"); }
         finally { setLoading(false); }
     };

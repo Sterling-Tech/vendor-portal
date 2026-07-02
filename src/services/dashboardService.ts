@@ -1,7 +1,6 @@
 /**
  * Dashboard Service
- * All API calls for the vendor Dashboard and Vend-for-Customer feature.
- * Import from here — never inline fetch in Dashboard.tsx.
+ * All API calls for the vendor Dashboard and Fund Wallet feature.
  */
 
 import { get, post } from './api';
@@ -13,10 +12,6 @@ export const fetchDashboardSummary = (tenantId?: string | null) => {
     return get<DashboardResponse>(`/tenants/vendor-dashboard/${query}`);
 };
 
-// ─── Query builder ─────────────────────────────────────────────────────────────
-
-
-/** Pull the auth token out of localStorage however it was stored */
 export const getAuthToken = (): string | null =>
     typeof window !== 'undefined'
         ? localStorage.getItem('token') ||
@@ -24,17 +19,16 @@ export const getAuthToken = (): string | null =>
           localStorage.getItem('accessToken')
         : null;
 
-/** Extract a human-readable message from any DRF error shape */
 export const extractError = (err: any): string => {
     if (!err) return 'An unexpected error occurred';
     if (typeof err === 'string') return err;
-    if (typeof err.detail === 'string') return err.detail;
-    if (typeof err.message === 'string') return err.message;
-    if (typeof err.error === 'string') return err.error;
-    if (Array.isArray(err.non_field_errors)) return err.non_field_errors.join(' ');
-    // Field-keyed DRF errors: { email: ["already exists"], phone: ["invalid"] }
+    const d = err?.response?.data ?? err?.data ?? err;
+    if (typeof d?.detail === 'string') return d.detail;
+    if (typeof d?.message === 'string') return d.message;
+    if (typeof d?.error === 'string') return d.error;
+    if (Array.isArray(d?.non_field_errors)) return d.non_field_errors.join(' ');
     const msgs: string[] = [];
-    for (const [k, v] of Object.entries(err))
+    for (const [k, v] of Object.entries(d ?? {}))
         if (Array.isArray(v)) msgs.push(`${k}: ${(v as string[]).join(', ')}`);
     return msgs.length ? msgs.join(' | ') : 'An unexpected error occurred';
 };
@@ -68,65 +62,60 @@ export interface LedgerParams {
     end_date: string;
 }
 
-export interface VendPayload {
-    account_number: string;
-    bill_type: string;
+/** Payload for POST /vendor/request-funding/ */
+export interface FundWalletPayload {
+    amount: string | number;
+}
+
+/** Response from POST /vendor/request-funding/ */
+export interface FundWalletResult {
+    id: number;
+    transaction_ref: string;
+    vendor: {
+        id: number;
+        email: string;
+        business_name: string;
+        account_status: string;
+        hierachy: string;
+    };
     amount: string;
+    status: string;
+    request_time: string;
 }
 
 // ─── Service ───────────────────────────────────────────────────────────────────
 export const dashboardService = {
-    /** Current vendor's wallet balance and type */
     getWallet(): Promise<WalletData> {
         return get('/vendor/wallet/');
     },
 
-    /** All related children (no hierarchy filter) */
     getRelatedVendors(params?: RelatedVendorParams) {
         return get<any>(`/vendor/retrieve/related-children/${buildQuery(params)}`);
     },
 
-    /** Children filtered by hierarchy (vendor | sub_vendor | agent | cashier | pos) */
     getGroupVendors(hierarchy: string) {
         return get<any>(`/vendor/retrieve/related-children/?hierachy=${hierarchy}`);
     },
 
-    /** Direct children of a specific vendor */
     getVendorChildren(vendorId: number) {
         return get<any>(`/vendor/retrieve/related-children/?vendor_id=${vendorId}`);
     },
 
-    /** Paginated transactions for a vendor */
     getVendorTransactions(params: TransactionParams) {
         return get<any>(`/vendor/retrieve-children/transactions/${buildQuery(params as any)}`);
     },
 
-    /** Ledger entries for a vendor within a date range */
     getLedger(params: LedgerParams) {
         return get<any>(`/vendor/ledger/${buildQuery(params as any)}`);
     },
 
     /**
-     * Vend for Customer
-     * POST /vendor/vend/ — multipart form data
-     * Fields: account_number, bill_type, amount
+     * Request wallet funding.
+     * POST /vendor/request-funding/
+     * Payload: { amount }
+     * N.B. This only submits a request — no actual funding occurs until approved.
      */
-    vendForCustomer(payload: VendPayload): Promise<any> {
-        const token = getAuthToken();
-        const formData = new FormData();
-        formData.append('account_number', payload.account_number);
-        formData.append('bill_type', payload.bill_type);
-        formData.append('amount', payload.amount);
-
-        // Multipart: do NOT set Content-Type — browser adds boundary automatically
-        return fetch(`${(window as any).__VENDOR_API_BASE__ || 'http://188.166.161.13:8061'}/vendor/vend/`, {
-            method: 'POST',
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-            body: formData,
-        }).then(async (res) => {
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw data;
-            return data;
-        });
+    requestWalletFunding(payload: FundWalletPayload): Promise<FundWalletResult> {
+        return post<FundWalletResult>('/vendor/request-funding/', payload);
     },
 };

@@ -42,8 +42,9 @@ export interface FundWalletPayload {
     amount: number | string;
 }
 
-/** Payload accepted by POST /vendor/request-funding/ */
-export interface RequestFundingPayload {
+/** Payload accepted by POST /vendor/funding/children */
+export interface FundingChildPayload {
+    vendor: number | string;
     amount: number | string;
 }
 
@@ -128,11 +129,11 @@ export const vendorManagementService = {
     /**
      * Request wallet funding for the current vendor.
      * POST /vendor/request-funding/
-     * Payload: { amount }
+     * Payload: { vendor , amount }
      * N.B. This only *requests* funding — no actual funding occurs until approved.
      */
-    requestWalletFunding: (payload: RequestFundingPayload) =>
-        post<FundingRequest>('/vendor/request-funding/', payload),
+    requestWalletFunding: (payload: FundingChildPayload) =>
+        put<FundingRequest>('/vendor/fund/child/', payload),
 
     /**
      * Retrieve funding requests.
@@ -159,7 +160,7 @@ export const vendorManagementService = {
 
 /** Extract a human-readable message from any DRF error shape */
 export const extractBackendError = (data: any): string => {
-    if (!data || typeof data !== 'object') return 'An unexpected error occurred';
+    if (!data || typeof data !== 'object') return data || 'An unexpected error occurred';
     if (typeof data.detail === 'string') return data.detail;
     if (typeof data.message === 'string') return data.message;
     if (typeof data.error === 'string') return data.error;
@@ -168,5 +169,5 @@ export const extractBackendError = (data: any): string => {
     const msgs: string[] = [];
     for (const [k, v] of Object.entries(data))
         if (Array.isArray(v)) msgs.push(`${k}: ${(v as string[]).join(', ')}`);
-    return msgs.length ? msgs.join(' | ') : 'An unexpected error occurred';
+    return msgs.length ? msgs.join(' | ') : data || 'An unexpected error occurred';
 };
