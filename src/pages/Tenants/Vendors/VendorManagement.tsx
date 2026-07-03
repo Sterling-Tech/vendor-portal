@@ -912,7 +912,7 @@ const VendorManagement: React.FC = () => {
                                                         '&:hover': { bgcolor: '#f0fdf4', borderColor: '#15803d' },
                                                     }}
                                                 >
-                                                    Fund Wallet
+                                                    Fund Subordinate Wallet
                                                 </Button>
                                                 <Button variant="contained" color="error" sx={{ height: 36, textTransform: 'none', borderRadius: 2 }} startIcon={<Delete />} onClick={() => handleDeleteVendor(selectedVendor.id)}>Delete</Button>
                                             </Stack>
@@ -974,7 +974,7 @@ const VendorManagement: React.FC = () => {
                             <Card sx={{ borderRadius: 2 }}>
                                 <CardContent>
                                     <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-                                        <Typography variant="h6">Hierarchy Under This Vendor</Typography>
+                                        <Typography variant="h6">Subordinates Under This Vendor</Typography>
                                         {detailLoading && <CircularProgress size={22} />}
                                     </Stack>
                                     <Paper variant="outlined" sx={{ maxHeight: 340, overflow: 'auto', borderRadius: 1 }}>
