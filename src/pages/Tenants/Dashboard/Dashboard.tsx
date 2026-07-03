@@ -407,7 +407,7 @@ const Dashboard: React.FC = () => {
                         onClick={openFundDialog}
                         sx={{ bgcolor: '#1e3a8a', '&:hover': { bgcolor: '#1e40af' }, textTransform: 'none', borderRadius: 2, fontWeight: 700 }}
                     >
-                        Fund Wallet
+                      Request Vendor Funding
                     </Button>
                 </Stack>
             </Stack>

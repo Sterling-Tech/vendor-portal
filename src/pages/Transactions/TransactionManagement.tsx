@@ -314,7 +314,7 @@ const TransactionManagement: React.FC = () => {
                 'Status',
                 'Reversal',
                 'Credit',
-                'Date',           // second Date column — closing date / settlement date
+                'Debit',           // second Date column — closing date / settlement date
                 'closing_balance',
             ];
 
@@ -329,7 +329,9 @@ const TransactionManagement: React.FC = () => {
                 tx.direction === 'credit'
                     ? tx.value                                             // Credit (amount if credit)
                     : '',                                                   // blank if debit
-                formatDateTime(tx.created_at),                            // Date (closing/settlement)
+                tx.direction === 'debit'
+                    ? tx.value                                             // Credit (amount if credit)
+                    : '',                                           
                 tx.closing_balance !== undefined ? tx.closing_balance : '', // closing_balance
             ]);
 
@@ -340,7 +342,7 @@ const TransactionManagement: React.FC = () => {
                 ['', '', '', '', '', '', '', '', ''],
                 ['SUMMARY', '', '', '', '', '', '', '', ''],
                 ['Total Transactions',  allTx.length,  '', '', '', '', '', '', ''],
-                ['Total Credit Amount', '',             '', '', '', '', totalCredit, '', ''],
+                ['Total Credit Amount', totalCredit,             '', '', '', '', '', '', ''],
                 ['Successful',          allTx.filter(t => t.status === 'success').length, '', '', '', '', '', '', ''],
                 ['Pending',             allTx.filter(t => t.status === 'pending').length,  '', '', '', '', '', '', ''],
                 ['Failed',              allTx.filter(t => t.status === 'failed').length,   '', '', '', '', '', '', ''],
@@ -359,7 +361,7 @@ const TransactionManagement: React.FC = () => {
                 { wch: 12 }, // Status
                 { wch: 10 }, // Reversal
                 { wch: 18 }, // Credit
-                { wch: 22 }, // Date (closing)
+                { wch: 22 }, // Dabit
                 { wch: 20 }, // closing_balance
             ];
 
