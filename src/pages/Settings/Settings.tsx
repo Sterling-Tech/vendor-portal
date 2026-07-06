@@ -7,42 +7,21 @@ import {
 import {
   Security as SecurityIcon, AccountCircle as AccountIcon,
   Save as SaveIcon, SettingsApplications as ConfigIcon,
-  Shield as ShieldIcon,
+  Shield as ShieldIcon, History as HistoryIcon,
 } from "@mui/icons-material";
 import { useAppSelector, useAppDispatch } from "../../store/store";
 import { setAuth } from "../../store/slices/authSlice";
 import CreateNewAdmin from "./CreateNewAdmin";
 import AllAdmin from "./AllAdmin";
 import AssignPermission from "./AssignPermission";
+import AuditLogs from "./Auditlogs";
 import { changePassword, extractError,updateProfile } from "../../services/settingService";
-
-// ─── Profile update API ────────────────────────────────────────────────────────
-// const API_BASE = "http://188.166.161.13:8061";
 
 const getToken = () =>
   localStorage.getItem("token") ||
   localStorage.getItem("access_token") ||
   localStorage.getItem("accessToken") ||
   "";
-
-// const updateProfile = async (payload: {
-//   name?: string;
-//   gender?: string;
-//   phone_number?: string;
-//   is_2fa_enabled?: boolean;
-// }) => {
-//   const res = await fetch(`${API_BASE}/user/update-profile/`, {
-//     method: "PUT",
-//     headers: {
-//       "Content-Type": "application/json",
-//       Authorization: `Bearer ${getToken()}`,
-//     },
-//     body: JSON.stringify(payload),
-//   });
-//   const data = await res.json().catch(() => ({}));
-//   if (!res.ok) throw data;
-//   return data;
-// };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -219,6 +198,7 @@ const Settings: React.FC = () => {
             <Tab icon={<ConfigIcon />} iconPosition="start" label="Admin Management" />
             <Tab icon={<ConfigIcon />} iconPosition="start" label="Admin List" />
             <Tab icon={<ConfigIcon />} iconPosition="start" label="Assign Permission" />
+            <Tab icon={<HistoryIcon />} iconPosition="start" label="Audit Logs" />
           </Tabs>
         </Box>
 
@@ -472,6 +452,15 @@ const Settings: React.FC = () => {
         {activeTab === 2 && <CreateNewAdmin />}
         {activeTab === 3 && <AllAdmin />}
         {activeTab === 4 && <AssignPermission />}
+
+        {/* ══════════════════════════════════════════════════════════════════
+            AUDIT LOGS TAB — API Logs / Logins / Audit Trail
+        ══════════════════════════════════════════════════════════════════ */}
+        {activeTab === 5 && (
+          <CardContent sx={{ p: 4 }}>
+            <AuditLogs />
+          </CardContent>
+        )}
       </Card>
     </Box>
   );

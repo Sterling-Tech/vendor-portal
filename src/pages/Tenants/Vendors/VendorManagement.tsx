@@ -201,7 +201,9 @@ const VendorManagement: React.FC = () => {
     const today = new Date();
     const past = new Date(); past.setDate(today.getDate() - 14);
     const tomorrow = new Date(); tomorrow.setDate(today.getDate() + 1);
-
+    const [fundingRequestStatus, setFundingRequestStatus] = useState<
+        "approved" | "pending_review" | "pending_approval" | "rejected"
+    >("approved");
     // ── List state ────────────────────────────────────────────────────────────
     const [vendors, setVendors] = useState<RelatedVendor[]>([]);
     const [selectedVendor, setSelectedVendor] = useState<RelatedVendor | null>(null);
@@ -464,17 +466,35 @@ const VendorManagement: React.FC = () => {
     }, []);
 
     // Retrieve all funding requests — GET /vendor/request-funding/
-    const fetchFundingRequests = useCallback(async (pg = 1, ps = 8) => {
-        setFundingRequestsLoading(true); setFundingRequestsError(null);
+    const fetchFundingRequests = useCallback(
+    async (
+        pg = 1,
+        ps = 8,
+        status = fundingRequestStatus
+    ) => {
+        setFundingRequestsLoading(true);
+        setFundingRequestsError(null);
+
         try {
-            const payload = await vendorManagementService.getFundingRequests({ page: pg, page_size: ps });
+            const payload =
+                await vendorManagementService.getFundingRequests({
+                    request_status: status,
+                    page: pg,
+                    page_size: ps,
+                });
+
             setFundingRequests(payload?.results || []);
             setFundingRequestsCount(Number(payload?.count || 0));
         } catch (err: any) {
             setFundingRequestsError(extractBackendError(err));
-            setFundingRequests([]); setFundingRequestsCount(0);
-        } finally { setFundingRequestsLoading(false); }
-    }, []);
+            setFundingRequests([]);
+            setFundingRequestsCount(0);
+        } finally {
+            setFundingRequestsLoading(false);
+        }
+    },
+    [fundingRequestStatus]
+);
 
     const openFundingRequests = () => {
         setFundingRequestsOpen(true); setFundingRequestPage(0);
@@ -1173,7 +1193,7 @@ const VendorManagement: React.FC = () => {
 
             {/* ══════════════════════════════════════════════════════════════════
                 FUNDING REQUESTS PAGE — GET /vendor/request-funding/
-            ══════════════════════════════════════════════════════════════════ */}
+            ══════════════════════════════════════════════════════════════════ */} 
             <Dialog open={fundingRequestsOpen} onClose={closeFundingRequests} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
                 <Box sx={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', px: 3, pt: 3, pb: 2.5, color: '#fff' }}>
                     <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
@@ -1198,11 +1218,41 @@ const VendorManagement: React.FC = () => {
 
                     <Paper variant="outlined" sx={{ borderRadius: 2 }}>
                         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, py: 1.5 }}>
-                            <Typography variant="subtitle1" fontWeight={700}>All Requests</Typography>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                                {fundingRequestsLoading && <CircularProgress size={20} />}
+                            <Typography variant="subtitle1" fontWeight={700}>All Requests  {fundingRequestsLoading && <CircularProgress size={20} />}</Typography>
+                                <Stack
+                                    direction="row"
+                                    justifyContent="space-between"
+                                    alignItems="center"
+                                    mb={2}
+                                >
+                                    <FormControl size="small" sx={{ minWidth: 220 }}>
+                                        <InputLabel>Status</InputLabel>
+
+                                        <Select
+                                            label="Status"
+                                            value={fundingRequestStatus}
+                                            onChange={(e) => {
+                                                setFundingRequestStatus(e.target.value as any);
+                                                setFundingRequestPage(0);
+                                            }}
+                                        >
+                                            <MenuItem value="approved">Approved</MenuItem>
+                                            <MenuItem value="pending_review">
+                                                Pending Review
+                                            </MenuItem>
+                                            <MenuItem value="pending_approval">
+                                                Pending Approval
+                                            </MenuItem>
+                                            <MenuItem value="rejected">
+                                                Rejected
+                                            </MenuItem>
+                                        </Select>
+                                    </FormControl>
+                                    <Stack spacing={1}>
                                 <IconButton size="small" onClick={() => fetchFundingRequests(fundingRequestPage + 1, fundingRequestRowsPerPage)}><Refresh fontSize="small" /></IconButton>
                             </Stack>
+                                </Stack>
+                                 
                         </Stack>
                         <Divider />
                         <Box sx={{ overflowX: 'auto' }}>
@@ -1218,6 +1268,7 @@ const VendorManagement: React.FC = () => {
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
+                                    
                                     {fundingRequests.length === 0 ? (
                                         <TableRow><TableCell colSpan={6} align="center" sx={{ py: 5, color: 'text.secondary' }}>{fundingRequestsLoading ? 'Loading…' : 'No funding requests found'}</TableCell></TableRow>
                                     ) : fundingRequests.map(r => (

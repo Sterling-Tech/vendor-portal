@@ -4,18 +4,25 @@ import {
     Collapse, Dialog, DialogContent, DialogActions, Divider, FormControl,
     Grid, IconButton, InputLabel, MenuItem, Paper, Select, Stack, Tab,
     Table, TableBody, TableCell, TableHead, TablePagination, TableRow,
-    Tabs, TextField, Typography, ListItemButton, ListItemText,
+    Tabs, TextField, Typography, ListItemButton, ListItemText, Tooltip,
 } from '@mui/material';
 import {
     AccountBalance, ArrowBack, ArrowDropDown, ArrowForward, Business,
     CheckCircle, ChevronRight, Close, ContentCopy, Domain, ErrorOutline,
     Key, People, Receipt, Refresh, Settings, AccountBalanceWallet,
+    ListAlt, History, WarningAmber,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import {
     dashboardService, extractError,
     FundWalletResult,
 } from '../../../services/dashboardService';
+import {
+    vendorManagementService,
+    extractBackendError,
+    FundingRequest,
+    FundingRequestStatus,
+} from '../../../services/vendormanagementservice';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Hierarchy  = 'vendor' | 'sub_vendor' | 'agent' | 'cashier' | 'pos';
@@ -54,7 +61,7 @@ const formatDate = (v?: string | null) => {
 const statusColor = (s?: string): ChipColor => {
     switch ((s || '').toLowerCase()) {
         case 'active': case 'success': case 'approved': case 'completed': return 'success';
-        case 'pending': case 'review': return 'warning';
+        case 'pending': case 'review': case 'pending_review': case 'pending_approval': return 'warning';
         case 'failed': case 'inactive': case 'suspended': case 'rejected': return 'error';
         default: return 'default';
     }
@@ -139,6 +146,13 @@ const DASHBOARD_GROUPS: DashboardGroup[] = [
     { id: 'agents',      label: 'Agents',      tableTitle: 'Recent Agents',      description: 'Agents under this vendor hierarchy.',      hierarchy: 'agent',      color: 'warning',   icon: <People /> },
     { id: 'cashiers',    label: 'Cashiers',    tableTitle: 'Recent Cashiers',    description: 'Cashiers under this vendor hierarchy.',    hierarchy: 'cashier',    color: 'info',      icon: <Receipt /> },
     { id: 'pos',         label: 'POS',         tableTitle: 'Recent POS',         description: 'POS records under this vendor hierarchy.', hierarchy: 'pos',        color: 'secondary', icon: <AccountBalance /> },
+];
+
+const REQUEST_STATUS_OPTIONS: { label: string; value: FundingRequestStatus }[] = [
+    { label: 'Approved', value: 'approved' },
+    { label: 'Pending Review', value: 'pending_review' },
+    { label: 'Pending Approval', value: 'pending_approval' },
+    { label: 'Rejected', value: 'rejected' },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -240,6 +254,41 @@ const Dashboard: React.FC = () => {
             setFundLoading(false);
         }
     };
+
+    // ── Funding Requests list dialog (moved here from Vendor Management) ────────
+    const [fundingRequestsOpen, setFundingRequestsOpen] = useState(false);
+    const [fundingRequests, setFundingRequests] = useState<FundingRequest[]>([]);
+    const [fundingRequestsCount, setFundingRequestsCount] = useState(0);
+    const [fundingRequestsLoading, setFundingRequestsLoading] = useState(false);
+    const [fundingRequestsError, setFundingRequestsError] = useState<string | null>(null);
+    const [fundingRequestPage, setFundingRequestPage] = useState(0);
+    const [fundingRequestRowsPerPage, setFundingRequestRowsPerPage] = useState(8);
+    // Defaults to 'approved' — i.e. successful funding requests are shown first
+    const [requestStatusFilter, setRequestStatusFilter] = useState<FundingRequestStatus>('approved');
+
+    const fetchFundingRequests = useCallback(async (pg = 1, ps = 8, status: FundingRequestStatus = requestStatusFilter) => {
+        setFundingRequestsLoading(true); setFundingRequestsError(null);
+        try {
+            const payload = await vendorManagementService.getFundingRequests({ request_status: status, page: pg, page_size: ps });
+            setFundingRequests(payload?.results || []);
+            setFundingRequestsCount(Number(payload?.count || 0));
+        } catch (err: any) {
+            setFundingRequestsError(extractBackendError(err));
+            setFundingRequests([]); setFundingRequestsCount(0);
+        } finally { setFundingRequestsLoading(false); }
+    }, [requestStatusFilter]);
+
+    const openFundingRequests = () => {
+        setFundingRequestsOpen(true); setFundingRequestPage(0);
+        fetchFundingRequests(1, fundingRequestRowsPerPage, requestStatusFilter);
+    };
+    const closeFundingRequests = () => setFundingRequestsOpen(false);
+
+    useEffect(() => {
+        if (fundingRequestsOpen) fetchFundingRequests(fundingRequestPage + 1, fundingRequestRowsPerPage, requestStatusFilter);
+    }, [fundingRequestsOpen, fundingRequestPage, fundingRequestRowsPerPage, requestStatusFilter, fetchFundingRequests]);
+
+    const copyTransactionRef = (ref?: string) => copyText(ref || '');
 
     const currentVendorId = getCurrentVendorId();
     const currentVendorName = getCurrentVendorName();
@@ -353,6 +402,11 @@ const Dashboard: React.FC = () => {
     const selectedWalletBalance = selectedNetBalance || getWalletBalance(selectedVendor);
     const selectedChildrenCount = selectedChildren.length;
 
+    const fundingRequestStats = useMemo(() => {
+        const totalAmount = fundingRequests.reduce((s, r) => s + Number(r.amount || 0), 0);
+        return { totalAmount };
+    }, [fundingRequests]);
+
     const handleSelectVendor = useCallback((vendor: RelatedVendor) => {
         setSelectedVendor(vendor); setShowFullDetails(false); setExpandedIds(new Set([vendor.id]));
         if (typeof window !== 'undefined')
@@ -400,7 +454,7 @@ const Dashboard: React.FC = () => {
                     >
                         Refresh
                     </Button>
-                    {/* ── Fund Wallet button ── */}
+                    {/* ── Request Vendor Funding button ── */}
                     <Button
                         variant="contained"
                         startIcon={<AccountBalanceWallet />}
@@ -688,7 +742,7 @@ const Dashboard: React.FC = () => {
                         <Box>
                             <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
                                 <AccountBalanceWallet sx={{ fontSize: 22 }} />
-                                <Typography variant="h6" fontWeight={700} color="#fff">Fund Wallet</Typography>
+                                <Typography variant="h6" fontWeight={700} color="#fff">Request Vendor Funding</Typography>
                             </Stack>
                             <Typography variant="caption" sx={{ color: '#93c5fd' }}>
                                 This sends a funding request — no funds move until approved.
@@ -823,14 +877,23 @@ const Dashboard: React.FC = () => {
                                 </Stack>
                             </Box>
 
-                            <Box sx={{ mt: 2, p: 1.5, bgcolor: '#eff6ff', borderRadius: 2, border: '1px solid #bfdbfe' }}>
+                            {/* <Box sx={{ mt: 2, p: 1.5, bgcolor: '#eff6ff', borderRadius: 2, border: '1px solid #bfdbfe' }}>
                                 <Typography variant="caption" color="primary.main">
                                     Your request is <strong>{fundResult.data.status}</strong>. No funds have moved yet — a system admin will review and approve the request.
                                 </Typography>
-                            </Box>
+                            </Box> */}
                         </DialogContent>
 
-                        <DialogActions sx={{ px: 3, pb: 3 }}>
+                        <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+                            {/* NEW: View Funding Requests — moved here from Vendor Management */}
+                            <Button
+                                fullWidth variant="outlined"
+                                onClick={() => { closeFundResult(); openFundingRequests(); }}
+                                // startIcon={<ListAlt />}
+                                sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700 }}
+                            >
+                                View Fund Requests
+                            </Button>
                             <Button
                                 fullWidth variant="contained" onClick={closeFundResult}
                                 sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' } }}
@@ -903,8 +966,122 @@ const Dashboard: React.FC = () => {
                     </Box>
                 )}
             </Dialog>
+
+            {/* ══════════════════════════════════════════════════════════════════
+                FUNDING REQUESTS LIST — moved here from Vendor Management.
+                Defaults to "Approved" (successful) requests; switch via the
+                status dropdown since request_status is required by the API.
+            ══════════════════════════════════════════════════════════════════ */}
+            <Dialog open={fundingRequestsOpen} onClose={closeFundingRequests} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+                <Box sx={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', px: 3, pt: 3, pb: 2.5, color: '#fff' }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                        <Box>
+                            <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
+                                <History sx={{ fontSize: 22 }} />
+                                <Typography variant="h6" fontWeight={700} color="#fff">Funding Requests</Typography>
+                            </Stack>
+                            <Typography variant="body2" sx={{ color: '#93c5fd' }}>All wallet-funding requests submitted across vendors</Typography>
+                        </Box>
+                        <IconButton onClick={closeFundingRequests} size="small" sx={{ color: '#93c5fd', '&:hover': { color: '#fff' } }}><Close fontSize="small" /></IconButton>
+                    </Stack>
+                </Box>
+                <DialogContent sx={{ p: 3 }}>
+                    {fundingRequestsError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setFundingRequestsError(null)}>{fundingRequestsError}</Alert>}
+
+                    {/* Status filter — request_status is required by the backend */}
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }} mb={3}>
+                        <FormControl size="small" sx={{ minWidth: 220 }}>
+                            <InputLabel>Request Status</InputLabel>
+                            <Select
+                                label="Request Status"
+                                value={requestStatusFilter}
+                                onChange={e => { setRequestStatusFilter(e.target.value as FundingRequestStatus); setFundingRequestPage(0); }}
+                                sx={{ borderRadius: 2 }}
+                            >
+                                {REQUEST_STATUS_OPTIONS.map(o => (
+                                    <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        <Typography variant="caption" color="text.secondary">
+                            Showing <strong>{REQUEST_STATUS_OPTIONS.find(o => o.value === requestStatusFilter)?.label}</strong> requests
+                        </Typography>
+                    </Stack>
+
+                    <Grid container spacing={2} mb={3}>
+                        <Grid item xs={12} sm={4}><StatTile title="Total Requests" value={formatNumber(fundingRequests.length)} icon={<ListAlt />} color="primary" /></Grid>
+                        <Grid item xs={12} sm={4}><StatTile title="Current Filter" value={REQUEST_STATUS_OPTIONS.find(o => o.value === requestStatusFilter)?.label || ''} icon={<Receipt />} color="warning" /></Grid>
+                        <Grid item xs={12} sm={4}><StatTile title="Total Amount (page)" value={formatCurrency(fundingRequestStats.totalAmount)} icon={<AccountBalance />} color="success" /></Grid>
+                    </Grid>
+
+                    <Paper variant="outlined" sx={{ borderRadius: 2 }}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, py: 1.5 }}>
+                            <Typography variant="subtitle1" fontWeight={700}>Requests</Typography>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                                {fundingRequestsLoading && <CircularProgress size={20} />}
+                                <Tooltip title="Refresh" arrow>
+                                    <IconButton size="small" onClick={() => fetchFundingRequests(fundingRequestPage + 1, fundingRequestRowsPerPage, requestStatusFilter)}><Refresh fontSize="small" /></IconButton>
+                                </Tooltip>
+                            </Stack>
+                        </Stack>
+                        <Divider />
+                        <Box sx={{ overflowX: 'auto' }}>
+                            <Table size="small">
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell>Ref</TableCell>
+                                        <TableCell>Vendor</TableCell>
+                                        <TableCell>Email</TableCell>
+                                        <TableCell align="right">Amount</TableCell>
+                                        <TableCell>Status</TableCell>
+                                        <TableCell>Requested</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {fundingRequests.length === 0 ? (
+                                        <TableRow><TableCell colSpan={6} align="center" sx={{ py: 5, color: 'text.secondary' }}>{fundingRequestsLoading ? 'Loading…' : 'No funding requests found for this status'}</TableCell></TableRow>
+                                    ) : fundingRequests.map(r => (
+                                        <TableRow key={r.id} hover>
+                                            <TableCell>
+                                                <Stack direction="row" spacing={0.5} alignItems="center">
+                                                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{r.transaction_ref.slice(0, 8)}…</Typography>
+                                                    <IconButton size="small" onClick={() => copyTransactionRef(r.transaction_ref)}><ContentCopy sx={{ fontSize: 13 }} /></IconButton>
+                                                </Stack>
+                                            </TableCell>
+                                            <TableCell><Typography variant="body2" fontWeight={600}>{r.vendor?.business_name}</Typography><Chip label={hierarchyLabel(r.vendor?.hierachy)} size="small" variant="outlined" color={hierarchyColor(r.vendor?.hierachy)} sx={{ height: 18, fontSize: 10, mt: 0.25 }} /></TableCell>
+                                            <TableCell>{r.vendor?.email}</TableCell>
+                                            <TableCell align="right"><Typography fontWeight={700} color="success.main">{formatCurrency(r.amount)}</Typography></TableCell>
+                                            <TableCell><Chip label={r.status} size="small" color={statusColor(r.status)} /></TableCell>
+                                            <TableCell>{formatDate(r.request_time)}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                            <TablePagination component="div" count={fundingRequestsCount} page={fundingRequestPage} onPageChange={(_, p) => setFundingRequestPage(p)} rowsPerPage={fundingRequestRowsPerPage} onRowsPerPageChange={e => { setFundingRequestRowsPerPage(Number(e.target.value)); setFundingRequestPage(0); }} rowsPerPageOptions={[5, 8, 12, 20]} />
+                        </Box>
+                    </Paper>
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 3 }}>
+                    <Button variant="outlined" onClick={closeFundingRequests} sx={{ borderRadius: 2, textTransform: 'none' }}>Close</Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 };
+
+// Small stat tile used only inside the Funding Requests dialog
+const StatTile = ({ title, value, icon, color = 'primary' }: { title: string; value: React.ReactNode; icon: React.ReactNode; color?: MuiColor }) => (
+    <Card sx={{ borderRadius: 2, height: '100%' }}>
+        <CardContent sx={{ p: '16px !important' }}>
+            <Stack direction="row" justifyContent="space-between" spacing={2}>
+                <Box>
+                    <Typography variant="caption" color="text.secondary">{title}</Typography>
+                    <Typography variant="h6" fontWeight={800}>{value}</Typography>
+                </Box>
+                <Avatar sx={{ bgcolor: `${color}.light`, color: `${color}.main`, width: 36, height: 36 }}>{icon}</Avatar>
+            </Stack>
+        </CardContent>
+    </Card>
+);
 
 export default Dashboard;

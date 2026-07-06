@@ -42,7 +42,7 @@ export interface FundWalletPayload {
     amount: number | string;
 }
 
-/** Payload accepted by POST /vendor/funding/children */
+/** Payload accepted by PUT /vendor/fund/child/ */
 export interface FundingChildPayload {
     vendor: number | string;
     amount: number | string;
@@ -67,7 +67,12 @@ export interface FundingRequest {
     request_time: string;
 }
 
+/** Valid values accepted by the required request_status query param */
+export type FundingRequestStatus = 'pending_review' | 'pending_approval' | 'approved' | 'rejected';
+
 export interface FundingRequestListParams {
+    /** REQUIRED by the backend — one of pending_review | pending_approval | approved | rejected */
+    request_status: FundingRequestStatus;
     page?: number;
     page_size?: number;
 }
@@ -122,25 +127,24 @@ export const vendorManagementService = {
      * Accepted fields: funding_cap, transaction_max, commission_rate, monthly_target
      */
     configureVendor: (vendorId: number, payload: VendorConfigurePayload) =>
-        // The api module may not expose `put`; we use post with method override.
-        // If your api.ts already has a `put` export, replace this with put(...)
         put<any>(`/vendor/configure/?vendor_id=${vendorId}`, payload),
 
     /**
-     * Request wallet funding for the current vendor.
-     * POST /vendor/request-funding/
-     * Payload: { vendor , amount }
-     * N.B. This only *requests* funding — no actual funding occurs until approved.
+     * Fund a subordinate vendor's wallet directly.
+     * PUT /vendor/fund/child/
+     * Payload: { vendor, amount }
      */
     requestWalletFunding: (payload: FundingChildPayload) =>
         put<FundingRequest>('/vendor/fund/child/', payload),
 
     /**
      * Retrieve funding requests.
-     * GET /vendor/request-funding/
+     * GET /vendor/request-funding/?request_status=approved
+     * `request_status` is REQUIRED by the backend — one of:
+     *   pending_review | pending_approval | approved | rejected
      * Vendor admins see only their own requests; system admins see all.
      */
-    getFundingRequests: (params?: FundingRequestListParams) =>
+    getFundingRequests: (params: FundingRequestListParams) =>
         get<{ count: number; next: string | null; previous: string | null; results: FundingRequest[] }>(
             `/vendor/request-funding/${buildQuery(params)}`
         ),
