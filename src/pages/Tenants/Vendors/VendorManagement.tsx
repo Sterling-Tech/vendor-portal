@@ -1184,7 +1184,7 @@ const VendorManagement: React.FC = () => {
                             </Box>
                         </DialogContent>
                         <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
-                            <Button fullWidth variant="outlined" onClick={() => { closeFundSuccessResult(); openFundingRequests(); }} startIcon={<ListAlt />} sx={{ borderRadius: 2, textTransform: 'none' }}>View All Requests</Button>
+                            {/* <Button fullWidth variant="outlined" onClick={() => { closeFundSuccessResult(); openFundingRequests(); }} startIcon={<ListAlt />} sx={{ borderRadius: 2, textTransform: 'none' }}>View All Requests</Button> */}
                             <Button fullWidth variant="contained" onClick={closeFundSuccessResult} sx={{ borderRadius: 2, textTransform: 'none', bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' }, fontWeight: 700 }}>Done</Button>
                         </DialogActions>
                     </Box>
