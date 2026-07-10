@@ -10,9 +10,10 @@ import {
     AccountBalance, ArrowBack, ArrowDropDown, ArrowForward, Business,
     CheckCircle, ChevronRight, Close, ContentCopy, Domain, ErrorOutline,
     Key, People, Receipt, Refresh, Settings, AccountBalanceWallet,
-    ListAlt, History, WarningAmber,
+    ListAlt, History, WarningAmber, TrendingUp, TrendingDown,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { useAppSelector } from '../../../store/hooks';
 import {
     dashboardService, extractError,
     FundWalletResult,
@@ -87,6 +88,10 @@ const normalizeHierarchy = (h?: string): Hierarchy => {
     if (v === 'cashier') return 'cashier';
     if (v === 'pos') return 'pos';
     return 'vendor';
+};
+// Hierarchy rank — lower number = higher up the chain
+const HIERARCHY_RANK: Record<Hierarchy, number> = {
+    vendor: 0, sub_vendor: 1, agent: 2, cashier: 3, pos: 4,
 };
 const getWalletBalance = (v?: RelatedVendor | null) => toNumber(v?.wallet?.balance);
 const getWalletType = (v?: RelatedVendor | null) => v?.wallet?.wallet_type?.name || 'Wallet';
@@ -190,6 +195,20 @@ const ResultRow = ({ label, value }: { label: string; value: React.ReactNode }) 
 // ─── Main component ───────────────────────────────────────────────────────────
 const Dashboard: React.FC = () => {
     const navigate = useNavigate();
+    const { user } = useAppSelector((state) => state.auth);
+
+    // The current user's own hierarchy level — used to hide tabs at or above
+    // their own rank. A vendor can't see other vendors, a cashier can't see
+    // vendors/sub-vendors/agents/other cashiers, etc. Each role only sees the
+    // levels strictly below its own in the chain.
+    const currentUserHierarchy = normalizeHierarchy(
+        (user as any)?.related_vendor?.hierachy || (user as any)?.hierachy || 'vendor'
+    );
+    const currentUserRank = HIERARCHY_RANK[currentUserHierarchy];
+    const visibleGroups = useMemo(
+        () => DASHBOARD_GROUPS.filter(g => HIERARCHY_RANK[g.hierarchy] > currentUserRank),
+        [currentUserRank]
+    );
 
     const [allVendors, setAllVendors] = useState<RelatedVendor[]>([]);
     const [groupVendors, setGroupVendors] = useState<RelatedVendor[]>([]);
@@ -201,7 +220,7 @@ const Dashboard: React.FC = () => {
     const [selectedLedgerSummary, setSelectedLedgerSummary] = useState<LedgerSummary>({ total_debits: 0, total_credits: 0 });
     const [selectedTransactionCount, setSelectedTransactionCount] = useState(0);
     const [walletData, setWalletData] = useState<any>(null);
-    const [activeGroup, setActiveGroup] = useState<GroupId>('vendors');
+    const [activeGroup, setActiveGroup] = useState<GroupId>(visibleGroups[0]?.id || 'vendors');
     const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(8);
@@ -221,7 +240,6 @@ const Dashboard: React.FC = () => {
     const [fundOpen, setFundOpen] = useState(false);
     const [fundAmount, setFundAmount] = useState('');
     const [fundLoading, setFundLoading] = useState(false);
-    // null = no result yet; object = show result (success or error)
     const [fundResult, setFundResult] = useState<
         | { kind: 'success'; data: FundWalletResult }
         | { kind: 'error'; message: string }
@@ -244,8 +262,8 @@ const Dashboard: React.FC = () => {
         setFundLoading(true);
         try {
             const data = await dashboardService.requestWalletFunding({ amount: fundAmount });
-            setFundOpen(false);                  // close the input dialog
-            setFundResult({ kind: 'success', data }); // open the result modal
+            setFundOpen(false);
+            setFundResult({ kind: 'success', data });
             setFundAmount('');
         } catch (err: any) {
             setFundOpen(false);
@@ -263,7 +281,6 @@ const Dashboard: React.FC = () => {
     const [fundingRequestsError, setFundingRequestsError] = useState<string | null>(null);
     const [fundingRequestPage, setFundingRequestPage] = useState(0);
     const [fundingRequestRowsPerPage, setFundingRequestRowsPerPage] = useState(8);
-    // Defaults to 'approved' — i.e. successful funding requests are shown first
     const [requestStatusFilter, setRequestStatusFilter] = useState<FundingRequestStatus>('approved');
 
     const fetchFundingRequests = useCallback(async (pg = 1, ps = 8, status: FundingRequestStatus = requestStatusFilter) => {
@@ -292,7 +309,7 @@ const Dashboard: React.FC = () => {
 
     const currentVendorId = getCurrentVendorId();
     const currentVendorName = getCurrentVendorName();
-    const currentGroup = DASHBOARD_GROUPS.find(g => g.id === activeGroup) || DASHBOARD_GROUPS[0];
+    const currentGroup = DASHBOARD_GROUPS.find(g => g.id === activeGroup) || visibleGroups[0] || DASHBOARD_GROUPS[0];
 
     // ── Fetches ───────────────────────────────────────────────────────────────
     const fetchWallet = useCallback(async () => {
@@ -362,6 +379,15 @@ const Dashboard: React.FC = () => {
 
     // ── Effects ───────────────────────────────────────────────────────────────
     useEffect(() => {
+        // If the currently active tab isn't visible to this user's role,
+        // snap to the first tab they're actually allowed to see.
+        if (!visibleGroups.some(g => g.id === activeGroup) && visibleGroups.length) {
+            setActiveGroup(visibleGroups[0].id);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [visibleGroups]);
+
+    useEffect(() => {
         fetchRelatedVendors();
         fetchGroupVendors(currentGroup.hierarchy);
         setSelectedVendor(null);
@@ -398,8 +424,8 @@ const Dashboard: React.FC = () => {
     const selectedChildrenTree = useMemo(() => buildVendorTree(selectedChildren), [selectedChildren]);
 
     const globalWalletBalance   = toNumber(walletData?.balance);
-    const selectedNetBalance    = selectedLedgerSummary.total_credits - selectedLedgerSummary.total_debits;
-    const selectedWalletBalance = selectedNetBalance || getWalletBalance(selectedVendor);
+    // Use the vendor's actual wallet balance (not a net-ledger derived figure)
+    const selectedWalletBalance = getWalletBalance(selectedVendor);
     const selectedChildrenCount = selectedChildren.length;
 
     const fundingRequestStats = useMemo(() => {
@@ -454,7 +480,6 @@ const Dashboard: React.FC = () => {
                     >
                         Refresh
                     </Button>
-                    {/* ── Request Vendor Funding button ── */}
                     <Button
                         variant="contained"
                         startIcon={<AccountBalanceWallet />}
@@ -468,12 +493,12 @@ const Dashboard: React.FC = () => {
 
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-            {/* ── Metric tiles ── */}
+            {/* ── Metric tiles — 3 cards (Recent Ledger card removed) ── */}
             <Grid container spacing={3} sx={{ mb: 3 }}>
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={4}>
                     <MetricTile title="Total Subordinates" value={formatNumber(allVendors.length)} detail="All related children" icon={<Business />} color="primary" />
                 </Grid>
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={4}>
                     <MetricTile
                         title="Wallet Balance"
                         value={walletLoading ? <CircularProgress size={20} /> : formatCurrency(globalWalletBalance)}
@@ -481,22 +506,18 @@ const Dashboard: React.FC = () => {
                         icon={<AccountBalance />} color="success"
                     />
                 </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                    <MetricTile title="Recent Ledger" value={formatNumber(globalLedgerEntries.length)}
-                        detail={`Debits ${formatCurrency(globalLedgerSummary.total_debits)}`} icon={<Receipt />} color="warning" />
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={4}>
                     <MetricTile title="Active Vendors" value={formatNumber(allVendors.filter(v => v.account_status === 'active').length)}
                         detail={`${tabCounts.cashiers} cashiers, ${tabCounts.pos} POS`} icon={<People />} color="info" />
                 </Grid>
             </Grid>
 
-            {/* ── Group tabs ── */}
+            {/* ── Group tabs — only hierarchy levels below the current user's own role ── */}
             <Card sx={{ mb: 3, borderRadius: 1 }}>
                 <CardContent>
                     <Tabs value={activeGroup} onChange={(_, v: GroupId) => setActiveGroup(v)} variant="scrollable" scrollButtons="auto"
                         sx={{ '& .MuiTab-root': { alignItems: 'flex-start', minHeight: 58 }, '& .MuiTab-root.Mui-selected': { bgcolor: 'action.selected' } }}>
-                        {DASHBOARD_GROUPS.map(g => (
+                        {visibleGroups.map(g => (
                             <Tab key={g.id} value={g.id} label={
                                 <Stack direction="row" spacing={1} alignItems="center">
                                     <Chip label={`${g.label} (${tabCounts[g.id]})`} size="small" color={g.color} variant="outlined" />
@@ -593,11 +614,20 @@ const Dashboard: React.FC = () => {
                                         </Stack>
                                     </Stack>
                                 </Stack>
+                                {/* ── Detail metric cards: Wallet Balance, Total Credit, Total Debit, Total Children ── */}
                                 <Grid container spacing={2} mb={2}>
-                                    <Grid item xs={12} sm={6} md={3}><MetricTile title="Wallet Balance" value={formatCurrency(selectedWalletBalance)} detail={getWalletType(selectedVendor)} icon={<AccountBalance />} color="success" /></Grid>
-                                    <Grid item xs={12} sm={6} md={3}><MetricTile title="Transactions" value={formatNumber(selectedTransactionCount)} detail="Related vendor transactions" icon={<Receipt />} color="warning" /></Grid>
-                                    <Grid item xs={12} sm={6} md={3}><MetricTile title="Total Children" value={formatNumber(selectedChildrenCount)} detail="Under selected vendor" icon={<People />} color="info" /></Grid>
-                                    <Grid item xs={12} sm={6} md={3}><MetricTile title="Net Ledger" value={formatCurrency(selectedNetBalance)} detail={`Credits ${formatCurrency(selectedLedgerSummary.total_credits)}`} icon={<Business />} color="primary" /></Grid>
+                                    <Grid item xs={12} sm={6} md={3}>
+                                        <MetricTile title="Wallet Balance" value={formatCurrency(selectedWalletBalance)} detail={getWalletType(selectedVendor)} icon={<AccountBalance />} color="success" />
+                                    </Grid>
+                                    <Grid item xs={12} sm={6} md={3}>
+                                        <MetricTile title="Total Credit" value={formatCurrency(selectedLedgerSummary.total_credits)} detail="Credits within date range" icon={<TrendingUp />} color="success" />
+                                    </Grid>
+                                    <Grid item xs={12} sm={6} md={3}>
+                                        <MetricTile title="Total Debit" value={formatCurrency(selectedLedgerSummary.total_debits)} detail="Debits within date range" icon={<TrendingDown />} color="error" />
+                                    </Grid>
+                                    <Grid item xs={12} sm={6} md={3}>
+                                        <MetricTile title="Total Children" value={formatNumber(selectedChildrenCount)} detail="Under selected vendor" icon={<People />} color="info" />
+                                    </Grid>
                                 </Grid>
                                 <Grid container spacing={2}>
                                     <Grid item xs={12} md={7}>
@@ -736,7 +766,6 @@ const Dashboard: React.FC = () => {
                 fullWidth
                 PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
             >
-                {/* Header */}
                 <Box sx={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', px: 3, pt: 3, pb: 2.5, color: '#fff' }}>
                     <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
                         <Box>
@@ -805,7 +834,6 @@ const Dashboard: React.FC = () => {
                 fullWidth
                 PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
             >
-                {/* ── SUCCESS ── */}
                 {fundResult?.kind === 'success' && (
                     <Box>
                         <Box sx={{
@@ -836,7 +864,6 @@ const Dashboard: React.FC = () => {
                         </Box>
 
                         <DialogContent sx={{ pt: 2.5, pb: 1 }}>
-                            {/* Amount hero */}
                             <Box sx={{ textAlign: 'center', py: 1.5, mb: 2, bgcolor: '#f0fdf4', borderRadius: 2, border: '1px solid #bbf7d0' }}>
                                 <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
                                     Requested Amount
@@ -862,7 +889,6 @@ const Dashboard: React.FC = () => {
                                 <ResultRow label="Requested At" value={formatDate(fundResult.data.request_time)} />
                             </Stack>
 
-                            {/* Transaction ref with copy */}
                             <Box sx={{ mt: 2, p: 1.5, bgcolor: '#f8faff', borderRadius: 2, border: '1px solid #e2e8f0' }}>
                                 <Typography variant="caption" color="text.secondary" fontWeight={700} display="block" mb={0.5}>
                                     TRANSACTION REFERENCE
@@ -876,20 +902,12 @@ const Dashboard: React.FC = () => {
                                     </IconButton>
                                 </Stack>
                             </Box>
-
-                            {/* <Box sx={{ mt: 2, p: 1.5, bgcolor: '#eff6ff', borderRadius: 2, border: '1px solid #bfdbfe' }}>
-                                <Typography variant="caption" color="primary.main">
-                                    Your request is <strong>{fundResult.data.status}</strong>. No funds have moved yet — a system admin will review and approve the request.
-                                </Typography>
-                            </Box> */}
                         </DialogContent>
 
                         <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
-                            {/* NEW: View Funding Requests — moved here from Vendor Management */}
                             <Button
                                 fullWidth variant="outlined"
                                 onClick={() => { closeFundResult(); openFundingRequests(); }}
-                                // startIcon={<ListAlt />}
                                 sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700 }}
                             >
                                 View Fund Requests
@@ -904,7 +922,6 @@ const Dashboard: React.FC = () => {
                     </Box>
                 )}
 
-                {/* ── ERROR ── */}
                 {fundResult?.kind === 'error' && (
                     <Box>
                         <Box sx={{
@@ -988,7 +1005,6 @@ const Dashboard: React.FC = () => {
                 <DialogContent sx={{ p: 3 }}>
                     {fundingRequestsError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setFundingRequestsError(null)}>{fundingRequestsError}</Alert>}
 
-                    {/* Status filter — request_status is required by the backend */}
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }} mb={3}>
                         <FormControl size="small" sx={{ minWidth: 220 }}>
                             <InputLabel>Request Status</InputLabel>
