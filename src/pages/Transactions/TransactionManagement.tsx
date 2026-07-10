@@ -4,11 +4,12 @@ import {
     Dialog, DialogContent, FormControl, Grid, IconButton, InputAdornment,
     InputLabel, MenuItem, Paper, Select, Snackbar, Stack,
     Tab, Table, TableBody, TableCell, TableContainer, TableHead,
-    TablePagination, TableRow, Tabs, TextField, Typography,
+    TablePagination, TableRow, Tabs, TextField, Typography, Tooltip,
 } from '@mui/material';
 import {
     AccountBalanceWallet, Assessment, Close, Download, Receipt,
     Refresh as RefreshIcon, Search as SearchIcon, TrendingDown, TrendingUp,
+    CheckCircle, RadioButtonUnchecked, RestartAlt,
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import { useAppSelector } from '../../store/hooks';
@@ -18,26 +19,28 @@ type TransactionStatus = 'success' | 'pending' | 'failed';
 type TransactionDirection = 'credit' | 'debit';
 type ChipColor = 'default' | 'primary' | 'secondary' | 'success' | 'warning' | 'info' | 'error';
 
+// Transaction record — GET /vendor/transactions/
+// Sample: { transaction_ref, amount, account_no, timestamp }
 type Transaction = {
     id: string;
     reference: string;
     status: TransactionStatus;
-    org_name: string;      // vendor name
-    wallet_key: string;
-    category: string;
-    channel: string;
+    account_no: string;
     direction: TransactionDirection;
     value: number;
     created_at: string;
-    account_number?: string;  // captured from API if present
-    closing_balance?: number; // captured from API if present
-    reversal?: string;        // captured from API if present
 };
+
+// Ledger record — GET /vendor/ledger/
+// Sample: { transaction_ref, category, debit_amount, credit_amount, closing_balance, timestamp }
 type LedgerEntry = {
-    id: string; ledger_ref: string; transaction_ref: string; account: string;
-    org_name: string; wallet_key: string; direction: TransactionDirection;
-    amount: number; balance_after: number; narration: string;
-    status: TransactionStatus; created_at: string;
+    id: string;
+    transaction_ref: string;
+    category: string;
+    debit_amount: number;
+    credit_amount: number;
+    closing_balance: number;
+    created_at: string;
 };
 type LedgerSummary = { total_debits: number; total_credits: number };
 
@@ -50,6 +53,7 @@ const formatDateTime = (value: string) => {
 };
 const statusColor = (s: string): ChipColor => s === 'success' ? 'success' : s === 'pending' ? 'warning' : s === 'failed' ? 'error' : 'default';
 const directionColor = (d: string): ChipColor => d === 'credit' ? 'success' : d === 'debit' ? 'error' : 'default';
+const categoryLabel = (c: string) => (c || '').split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') || '—';
 const escapeCsv = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
 const API_BASE_URL = 'http://188.166.161.13:8061/vendor';
@@ -60,17 +64,27 @@ const buildHeaders = (): HeadersInit => {
     return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 };
 
-// ─── Purpose options ────────────────────────────────────────────────────────────
-const PURPOSE_OPTIONS = [
-    { label: 'All Purposes',        value: 'all' },
-    { label: 'Payment',             value: 'payment' },
-    { label: 'Commission',          value: 'commission' },
-    { label: 'Commission Report',   value: 'commission_report' },
+// ─── Category options (used for ledger filter + report filter) ────────────────
+const CATEGORY_OPTIONS = [
+    { label: 'All Categories',      value: 'all' },
+    { label: 'Vending',             value: 'vending' },
+    { label: 'Wallet Funding',      value: 'wallet_funding' },
+    { label: 'Wallet Debit',        value: 'wallet_debit' },
+    { label: 'Wallet Credit',       value: 'wallet_credit' },
     { label: 'Payment Reversal',    value: 'payment_reversal' },
-    { label: 'Settlement',          value: 'settlement' },
-    { label: 'Refund',              value: 'refund' },
-    { label: 'Transfer',            value: 'transfer' },
-    { label: 'Withdrawal',          value: 'withdrawal' },
+    { label: 'Commission',          value: 'commission' },
+];
+
+// ─── Report export column definitions ──────────────────────────────────────────
+type ReportColumnKey = 'date' | 'reference' | 'category' | 'account_number' | 'debit' | 'credit' | 'closing_balance';
+const REPORT_COLUMNS: { key: ReportColumnKey; label: string; header: string }[] = [
+    { key: 'date',            label: 'Date',            header: 'Date' },
+    { key: 'reference',       label: 'Reference',       header: 'Reference' },
+    { key: 'category',        label: 'Category',        header: 'Category' },
+    { key: 'account_number',  label: 'Account No.',     header: 'account_number' },
+    { key: 'debit',           label: 'Debit',           header: 'Debit' },
+    { key: 'credit',          label: 'Credit',           header: 'Credit' },
+    { key: 'closing_balance', label: 'Closing Balance', header: 'closing_balance' },
 ];
 
 // ─── Main component ─────────────────────────────────────────────────────────────
@@ -81,6 +95,7 @@ const TransactionManagement: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<TransactionStatus | 'all'>('all');
     const [directionFilter, setDirectionFilter] = useState<TransactionDirection | 'all'>('all');
+    const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
     const today = new Date();
     const oneYearAgo = new Date(); oneYearAgo.setFullYear(today.getFullYear() - 1);
@@ -112,14 +127,20 @@ const TransactionManagement: React.FC = () => {
     const [reportForm, setReportForm] = useState({
         start_date: fmt(oneYearAgo),
         end_date: fmt(tomorrow),
-        purpose: 'all',
-        status: 'all',
-        direction: 'all',
-        // ── CHANGED: was "transaction_ref", now "vendor" search ──────────────────
-        vendor: '',
+        category: 'all',
+        // search filters against transaction_ref / account number
+        search: '',
     });
 
-    // ── Fetch transactions (server-side paginated) ───────────────────────────────
+    // Which export columns are included — defaults to all ON, user can toggle off/on
+    const [reportColumns, setReportColumns] = useState<Record<ReportColumnKey, boolean>>({
+        date: true, reference: true, category: true, account_number: true,
+        debit: true, credit: true, closing_balance: true,
+    });
+    const toggleReportColumn = (key: ReportColumnKey) => setReportColumns(p => ({ ...p, [key]: !p[key] }));
+    const resetReportColumns = () => setReportColumns({ date: true, reference: true, category: true, account_number: true, debit: true, credit: true, closing_balance: true });
+
+    // ── Fetch transactions (server-side paginated) — GET /vendor/transactions/ ───
     const fetchTransactions = useCallback(async (page: number, pageSize: number) => {
         if (!startDate || !endDate) return;
         try {
@@ -133,23 +154,17 @@ const TransactionManagement: React.FC = () => {
                 id: item.transaction_ref,
                 reference: item.transaction_ref,
                 status: item.status || 'success',
-                org_name: item.vendor_name || item.org_name || item.vendor?.business_name || 'Vendor',
-                wallet_key: item.wallet_key || '-',
-                category: item.category || 'Transaction',
-                channel: item.channel || '-',
+                account_no: item.account_no ?? '',
                 direction: Number(item.amount) >= 0 ? 'credit' : 'debit',
                 value: Math.abs(Number(item.amount || 0)),
                 created_at: item.timestamp,
-                account_number: item.account_number || item.account || '',
-                closing_balance: item.closing_balance || item.balance_after || 0,
-                reversal: item.reversal || item.is_reversal ? 'Yes' : 'No',
             }));
             setTransactions(mapped);
         } catch (err) { console.error('Transaction fetch error:', err); }
         finally { setLoading(false); }
     }, [startDate, endDate, user?.id]);
 
-    // ── Fetch ledger (server-side paginated) ─────────────────────────────────────
+    // ── Fetch ledger (server-side paginated) — GET /vendor/ledger/ ───────────────
     const fetchLedger = useCallback(async (page: number, pageSize: number) => {
         if (!startDate || !endDate) return;
         try {
@@ -161,16 +176,11 @@ const TransactionManagement: React.FC = () => {
             setLedgerTotal(data.count ?? 0);
             const mapped: LedgerEntry[] = (data.results ?? []).map((item: any, index: number) => ({
                 id: item.transaction_ref || `ledger-${index}`,
-                ledger_ref: item.ledger_ref || `LEDGER-${index + 1}`,
                 transaction_ref: item.transaction_ref,
-                account: item.account || '-',
-                org_name: item.vendor_name || item.org_name || 'Vendor',
-                wallet_key: item.wallet_key || '-',
-                direction: Number(item.credit_amount) > 0 ? 'credit' : 'debit',
-                amount: Number(item.credit_amount || 0) || Number(item.debit_amount || 0),
-                balance_after: Number(item.balance_after || 0),
-                narration: item.narration || '-',
-                status: item.status || 'success',
+                category: item.category || '',
+                debit_amount: Number(item.debit_amount || 0),
+                credit_amount: Number(item.credit_amount || 0),
+                closing_balance: Number(item.closing_balance || 0),
                 created_at: item.timestamp,
             }));
             setLedgerEntries(mapped);
@@ -180,28 +190,23 @@ const TransactionManagement: React.FC = () => {
         finally { setLoading(false); }
     }, [startDate, endDate, user?.id]);
 
-    // ── Fetch ALL pages for the report (loops through pagination) ────────────────
-    const fetchAllForReport = async (params: typeof reportForm): Promise<Transaction[]> => {
-        const allResults: Transaction[] = [];
+    // ── Fetch ALL ledger pages for the report (loops through pagination) ─────────
+    const fetchAllLedgerForReport = async (params: typeof reportForm): Promise<LedgerEntry[]> => {
+        const allResults: LedgerEntry[] = [];
         let page = 1; let hasNext = true;
         while (hasNext) {
-            const url = `${API_BASE_URL}/transactions/?start_date=${params.start_date}&end_date=${params.end_date}&vendor_id=${user?.id}&page=${page}&page_size=200`;
+            const url = `${API_BASE_URL}/ledger/?start_date=${params.start_date}&end_date=${params.end_date}&vendor_id=${user?.id}&page=${page}&page_size=200`;
             const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
-            if (!res.ok) throw new Error(`Transaction API failed (page ${page})`);
+            if (!res.ok) throw new Error(`Ledger API failed (page ${page})`);
             const data = await res.json();
-            const mapped: Transaction[] = (data.results ?? []).map((item: any) => ({
-                id: item.transaction_ref, reference: item.transaction_ref,
-                status: item.status || 'success',
-                org_name: item.vendor_name || item.org_name || item.vendor?.business_name || 'Vendor',
-                wallet_key: item.wallet_key || '-',
-                category: item.category || 'Transaction',
-                channel: item.channel || '-',
-                direction: Number(item.amount) >= 0 ? 'credit' : 'debit',
-                value: Math.abs(Number(item.amount || 0)),
+            const mapped: LedgerEntry[] = (data.results ?? []).map((item: any, index: number) => ({
+                id: item.transaction_ref || `ledger-${page}-${index}`,
+                transaction_ref: item.transaction_ref,
+                category: item.category || '',
+                debit_amount: Number(item.debit_amount || 0),
+                credit_amount: Number(item.credit_amount || 0),
+                closing_balance: Number(item.closing_balance || 0),
                 created_at: item.timestamp,
-                account_number: item.account_number || item.account || '',
-                closing_balance: item.closing_balance || item.balance_after || 0,
-                reversal: item.reversal || item.is_reversal ? 'Yes' : 'No',
             }));
             allResults.push(...mapped);
             hasNext = Boolean(data.next);
@@ -209,6 +214,26 @@ const TransactionManagement: React.FC = () => {
             if (page > 50) break; // safety limit
         }
         return allResults;
+    };
+
+    // ── Fetch ALL transaction pages, just to build a transaction_ref → account_no map
+    //    (the ledger API doesn't carry account numbers, so we merge it in for the report)
+    const fetchAccountNumberMap = async (params: typeof reportForm): Promise<Record<string, string>> => {
+        const map: Record<string, string> = {};
+        let page = 1; let hasNext = true;
+        while (hasNext) {
+            const url = `${API_BASE_URL}/transactions/?start_date=${params.start_date}&end_date=${params.end_date}&vendor_id=${user?.id}&page=${page}&page_size=200`;
+            const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+            if (!res.ok) break;
+            const data = await res.json();
+            (data.results ?? []).forEach((item: any) => {
+                if (item.transaction_ref) map[item.transaction_ref] = item.account_no ?? '';
+            });
+            hasNext = Boolean(data.next);
+            page++;
+            if (page > 50) break;
+        }
+        return map;
     };
 
     useEffect(() => {
@@ -226,28 +251,32 @@ const TransactionManagement: React.FC = () => {
     const filteredTransactions = useMemo(() => {
         const term = searchTerm.trim().toLowerCase();
         return transactions.filter((tx) => {
-            const matchesSearch = !term || tx.reference.toLowerCase().includes(term) || tx.org_name.toLowerCase().includes(term) || tx.wallet_key.toLowerCase().includes(term) || tx.category.toLowerCase().includes(term);
+            const matchesSearch = !term || tx.reference.toLowerCase().includes(term) || (tx.account_no || '').toLowerCase().includes(term);
             return matchesSearch && (statusFilter === 'all' || tx.status === statusFilter) && (directionFilter === 'all' || tx.direction === directionFilter);
         });
     }, [transactions, searchTerm, statusFilter, directionFilter]);
 
     const filteredLedger = useMemo(() => {
         const term = searchTerm.trim().toLowerCase();
-        return ledgerEntries.filter((entry) => !term || entry.ledger_ref.toLowerCase().includes(term) || entry.transaction_ref.toLowerCase().includes(term) || entry.account.toLowerCase().includes(term) || entry.org_name.toLowerCase().includes(term) || entry.narration.toLowerCase().includes(term));
-    }, [ledgerEntries, searchTerm]);
+        return ledgerEntries.filter((entry) => {
+            const matchesSearch = !term || entry.transaction_ref.toLowerCase().includes(term) || entry.category.toLowerCase().includes(term);
+            const matchesCategory = categoryFilter === 'all' || entry.category === categoryFilter;
+            return matchesSearch && matchesCategory;
+        });
+    }, [ledgerEntries, searchTerm, categoryFilter]);
 
     const handleRefresh = () => { fetchTransactions(transactionPage, transactionRowsPerPage); fetchLedger(ledgerPage, ledgerRowsPerPage); };
 
-    const resetFilters = () => { setSearchTerm(''); setStatusFilter('all'); setDirectionFilter('all'); setStartDate(fmt(oneYearAgo)); setEndDate(fmt(tomorrow)); setTransactionPage(0); setLedgerPage(0); };
+    const resetFilters = () => { setSearchTerm(''); setStatusFilter('all'); setDirectionFilter('all'); setCategoryFilter('all'); setStartDate(fmt(oneYearAgo)); setEndDate(fmt(tomorrow)); setTransactionPage(0); setLedgerPage(0); };
 
     const exportRows = useCallback(() => {
         const isLedger = tabValue === 1;
         const headers = isLedger
-            ? ['Date', 'Ledger Ref', 'Transaction Ref', 'Account', 'Organisation', 'Wallet', 'Direction', 'Amount', 'Balance After', 'Status', 'Narration']
-            : ['Date', 'Reference', 'Organisation', 'Wallet', 'Direction', 'Category', 'Channel', 'Amount', 'Status'];
+            ? ['Date', 'Transaction Ref', 'Category', 'Debit', 'Credit', 'Closing Balance']
+            : ['Date', 'Reference', 'Account No.', 'Type', 'Amount', 'Status'];
         const rows = isLedger
-            ? filteredLedger.map((e) => [formatDateTime(e.created_at), e.ledger_ref, e.transaction_ref, e.account, e.org_name, e.wallet_key, e.direction, e.amount, e.balance_after, e.status, e.narration])
-            : filteredTransactions.map((tx) => [formatDateTime(tx.created_at), tx.reference, tx.org_name, tx.wallet_key, tx.direction, tx.category, tx.channel, tx.value, tx.status]);
+            ? filteredLedger.map((e) => [formatDateTime(e.created_at), e.transaction_ref, categoryLabel(e.category), e.debit_amount, e.credit_amount, e.closing_balance])
+            : filteredTransactions.map((tx) => [formatDateTime(tx.created_at), tx.reference, tx.account_no, tx.direction, tx.value, tx.status]);
         const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\n');
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
@@ -259,147 +288,114 @@ const TransactionManagement: React.FC = () => {
     }, [tabValue, filteredLedger, filteredTransactions, startDate, endDate]);
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // GENERATE REPORT — Excel template with required headers
-    // Headers: Date | Vendor | Reference | account_number | Status | Reversal | Credit | Date | closing_balance
+    // GENERATE REPORT — sourced from the Ledger API, with toggleable columns
     // ─────────────────────────────────────────────────────────────────────────────
     const handleGenerateReport = async () => {
         setGenerating(true); setReportError(null);
         try {
-            // 1. Fetch all pages
-            let allTx = await fetchAllForReport(reportForm);
+            // 1. Fetch all ledger pages
+            let allEntries = await fetchAllLedgerForReport(reportForm);
 
             // 2. Client-side filters
-            if (reportForm.vendor.trim()) {
-                const v = reportForm.vendor.trim().toLowerCase();
-                allTx = allTx.filter(tx => tx.org_name.toLowerCase().includes(v));
+            if (reportForm.category !== 'all') {
+                allEntries = allEntries.filter(e => e.category === reportForm.category);
             }
-            if (reportForm.status !== 'all') {
-                allTx = allTx.filter(tx => tx.status === reportForm.status);
-            }
-            if (reportForm.direction !== 'all') {
-                allTx = allTx.filter(tx => tx.direction === reportForm.direction);
-            }
-            if (reportForm.purpose !== 'all') {
-                allTx = allTx.filter(tx => tx.category.toLowerCase().includes(reportForm.purpose.replace('_', ' ')));
+            if (reportForm.search.trim()) {
+                const term = reportForm.search.trim().toLowerCase();
+                allEntries = allEntries.filter(e => e.transaction_ref.toLowerCase().includes(term));
             }
 
-            if (allTx.length === 0) {
-                setReportError('No transactions match the selected filters. Try adjusting your criteria.');
+            if (allEntries.length === 0) {
+                setReportError('No ledger entries match the selected filters. Try adjusting your criteria.');
                 return;
             }
 
-            // 3. Build the Excel sheet with the required column layout
-            //    Required columns: Date | Vendor | Reference | account_number | Status | Reversal | Credit | Date | closing_balance
+            // 3. Merge in account numbers if that column is included (always useful for "vend")
+            let accountMap: Record<string, string> = {};
+            if (reportColumns.account_number) {
+                accountMap = await fetchAccountNumberMap(reportForm);
+            }
+
+            // 4. Build columns dynamically based on what's toggled on
+            const activeColumns = REPORT_COLUMNS.filter(c => reportColumns[c.key]);
+            if (activeColumns.length === 0) {
+                setReportError('Select at least one column to include in the report.');
+                return;
+            }
+
+            const buildRow = (e: LedgerEntry) => activeColumns.map(col => {
+                switch (col.key) {
+                    case 'date': return formatDateTime(e.created_at);
+                    case 'reference': return e.transaction_ref;
+                    case 'category': return categoryLabel(e.category);
+                    case 'account_number': return accountMap[e.transaction_ref] || '';
+                    case 'debit': return e.debit_amount || '';
+                    case 'credit': return e.credit_amount || '';
+                    case 'closing_balance': return e.closing_balance;
+                    default: return '';
+                }
+            });
 
             // ── Meta info rows ──
             const meta = [
-                ['TRANSACTION REPORT'],
+                ['TRANSACTION LEDGER REPORT'],
                 [],
                 ['Period',          `${reportForm.start_date}  →  ${reportForm.end_date}`],
                 ['Generated',       new Date().toLocaleString()],
-                ['Vendor Filter',   reportForm.vendor.trim() || 'All Vendors'],
-                ['Purpose',         PURPOSE_OPTIONS.find(p => p.value === reportForm.purpose)?.label || 'All'],
-                ['Status',          reportForm.status === 'all' ? 'All' : reportForm.status],
-                ['Type',            reportForm.direction === 'all' ? 'Credit & Debit' : reportForm.direction],
-                ['Total Records',   allTx.length],
+                ['Category',        CATEGORY_OPTIONS.find(c => c.value === reportForm.category)?.label || 'All'],
+                ['Search Filter',   reportForm.search.trim() || 'None'],
+                ['Total Records',   allEntries.length],
                 [],
             ];
 
-            // ── Column header row (exact header names as requested) ──
-            const colHeaders = [
-                'Date',
-                'Vendor',
-                'Reference',
-                'account_number',
-                'Status',
-                'Reversal',
-                'Credit',
-                'Debit',           // second Date column — closing date / settlement date
-                'closing_balance',
-            ];
+            const colHeaders = activeColumns.map(c => c.header);
+            const dataRows = allEntries.map(buildRow);
 
-            // ── Data rows ──
-            const dataRows = allTx.map((tx) => [
-                formatDateTime(tx.created_at),                            // Date
-                tx.org_name || '',                                         // Vendor
-                tx.reference || '',                                        // Reference
-                tx.account_number || '',                                   // account_number
-                tx.status?.toUpperCase() || '',                            // Status
-                tx.reversal || 'No',                                       // Reversal
-                tx.direction === 'credit'
-                    ? tx.value                                             // Credit (amount if credit)
-                    : '',                                                   // blank if debit
-                tx.direction === 'debit'
-                    ? tx.value                                             // Credit (amount if credit)
-                    : '',                                           
-                tx.closing_balance !== undefined ? tx.closing_balance : '', // closing_balance
-            ]);
-
-            // ── Summary rows ──
-            const totalCredit = allTx.filter(t => t.direction === 'credit').reduce((s, t) => s + t.value, 0);
-            const summary = [
+            const totalCredit = allEntries.reduce((s, e) => s + e.credit_amount, 0);
+            const totalDebit = allEntries.reduce((s, e) => s + e.debit_amount, 0);
+            const pad = (arr: any[]) => [...arr, ...Array(Math.max(0, activeColumns.length - arr.length)).fill('')];
+            const summaryRows = [
                 [],
-                ['', '', '', '', '', '', '', '', ''],
-                ['SUMMARY', '', '', '', '', '', '', '', ''],
-                ['Total Transactions',  allTx.length,  '', '', '', '', '', '', ''],
-                ['Total Credit Amount', totalCredit,             '', '', '', '', '', '', ''],
-                ['Successful',          allTx.filter(t => t.status === 'success').length, '', '', '', '', '', '', ''],
-                ['Pending',             allTx.filter(t => t.status === 'pending').length,  '', '', '', '', '', '', ''],
-                ['Failed',              allTx.filter(t => t.status === 'failed').length,   '', '', '', '', '', '', ''],
+                pad(['SUMMARY']),
+                pad(['Total Records', allEntries.length]),
+                pad(['Total Credit', totalCredit]),
+                pad(['Total Debit', totalDebit]),
+                pad(['Net', totalCredit - totalDebit]),
             ];
 
-            // 4. Assemble worksheet
-            const wsData = [...meta, colHeaders, ...dataRows, ...summary];
+            // 5. Assemble worksheet
+            const wsData = [...meta, colHeaders, ...dataRows, ...summaryRows];
             const ws = XLSX.utils.aoa_to_sheet(wsData);
+            ws['!cols'] = activeColumns.map(c => ({ wch: c.key === 'reference' ? 40 : c.key === 'closing_balance' ? 20 : 20 }));
+            ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(activeColumns.length - 1, 0) } }];
 
-            // Column widths
-            ws['!cols'] = [
-                { wch: 22 }, // Date
-                { wch: 28 }, // Vendor
-                { wch: 40 }, // Reference
-                { wch: 18 }, // account_number
-                { wch: 12 }, // Status
-                { wch: 10 }, // Reversal
-                { wch: 18 }, // Credit
-                { wch: 22 }, // Dabit
-                { wch: 20 }, // closing_balance
-            ];
-
-            // Merge title cell across all 9 columns
-            ws['!merges'] = [
-                { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
-            ];
-
-            // 5. Second sheet: clean Summary
+            // 6. Second sheet: clean Summary
             const summarySheetData = [
-                ['TRANSACTION REPORT — SUMMARY'],
+                ['TRANSACTION LEDGER REPORT — SUMMARY'],
                 [],
-                ['Date Range',          `${reportForm.start_date} to ${reportForm.end_date}`],
-                ['Vendor Filter',       reportForm.vendor.trim() || 'All Vendors'],
-                ['Purpose',             PURPOSE_OPTIONS.find(p => p.value === reportForm.purpose)?.label || 'All'],
-                ['Status Filter',       reportForm.status === 'all' ? 'All' : reportForm.status],
-                ['Generated At',        new Date().toLocaleString()],
+                ['Date Range',     `${reportForm.start_date} to ${reportForm.end_date}`],
+                ['Category',       CATEGORY_OPTIONS.find(c => c.value === reportForm.category)?.label || 'All'],
+                ['Generated At',   new Date().toLocaleString()],
                 [],
-                ['Metric',              'Value'],
-                ['Total Records',       allTx.length],
-                ['Total Credit',        totalCredit],
-                ['Successful',          allTx.filter(t => t.status === 'success').length],
-                ['Pending',             allTx.filter(t => t.status === 'pending').length],
-                ['Failed',              allTx.filter(t => t.status === 'failed').length],
+                ['Metric', 'Value'],
+                ['Total Records', allEntries.length],
+                ['Total Credit', totalCredit],
+                ['Total Debit', totalDebit],
+                ['Net', totalCredit - totalDebit],
             ];
             const wsSummary = XLSX.utils.aoa_to_sheet(summarySheetData);
             wsSummary['!cols'] = [{ wch: 26 }, { wch: 36 }];
             wsSummary['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }];
 
-            // 6. Build workbook & download
+            // 7. Build workbook & download
             const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
+            XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
             XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
 
-            const fileName = `transaction-report-${reportForm.start_date}-to-${reportForm.end_date}.xlsx`;
+            const fileName = `ledger-report-${reportForm.start_date}-to-${reportForm.end_date}.xlsx`;
             XLSX.writeFile(wb, fileName);
 
-            setSuccess(`✓ Report generated — ${allTx.length} transactions exported`);
+            setSuccess(`✓ Report generated — ${allEntries.length} entries exported`);
             setReportOpen(false);
         } catch (err: any) {
             setReportError(err?.message || 'Failed to generate report. Please try again.');
@@ -409,7 +405,8 @@ const TransactionManagement: React.FC = () => {
     };
 
     const resetReportForm = () => {
-        setReportForm({ start_date: fmt(oneYearAgo), end_date: fmt(tomorrow), purpose: 'all', status: 'all', direction: 'all', vendor: '' });
+        setReportForm({ start_date: fmt(oneYearAgo), end_date: fmt(tomorrow), category: 'all', search: '' });
+        resetReportColumns();
         setReportError(null);
     };
 
@@ -493,32 +490,45 @@ const TransactionManagement: React.FC = () => {
                 <CardContent>
                     <Grid container spacing={2} alignItems="center">
                         <Grid item xs={12} md={3}>
-                            <TextField fullWidth size="small" placeholder="Search ref, org, wallet…" value={searchTerm}
+                            <TextField fullWidth size="small" placeholder="Search ref, account, category…" value={searchTerm}
                                 onChange={(e) => handleFilterChange(() => setSearchTerm(e.target.value))}
                                 InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
                                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
                         </Grid>
-                        <Grid item xs={12} md={2}>
-                            <FormControl fullWidth size="small" sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
-                                <InputLabel>Status</InputLabel>
-                                <Select value={statusFilter} label="Status" onChange={(e) => handleFilterChange(() => setStatusFilter(e.target.value as any))}>
-                                    <MenuItem value="all">All Status</MenuItem>
-                                    <MenuItem value="success">Success</MenuItem>
-                                    <MenuItem value="pending">Pending</MenuItem>
-                                    <MenuItem value="failed">Failed</MenuItem>
-                                </Select>
-                            </FormControl>
-                        </Grid>
-                        <Grid item xs={12} md={2}>
-                            <FormControl fullWidth size="small" sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
-                                <InputLabel>Type</InputLabel>
-                                <Select value={directionFilter} label="Type" onChange={(e) => handleFilterChange(() => setDirectionFilter(e.target.value as any))}>
-                                    <MenuItem value="all">All Types</MenuItem>
-                                    <MenuItem value="credit">Credit</MenuItem>
-                                    <MenuItem value="debit">Debit</MenuItem>
-                                </Select>
-                            </FormControl>
-                        </Grid>
+                        {tabValue === 0 ? (
+                            <>
+                                <Grid item xs={12} md={2}>
+                                    <FormControl fullWidth size="small" sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                                        <InputLabel>Status</InputLabel>
+                                        <Select value={statusFilter} label="Status" onChange={(e) => handleFilterChange(() => setStatusFilter(e.target.value as any))}>
+                                            <MenuItem value="all">All Status</MenuItem>
+                                            <MenuItem value="success">Success</MenuItem>
+                                            <MenuItem value="pending">Pending</MenuItem>
+                                            <MenuItem value="failed">Failed</MenuItem>
+                                        </Select>
+                                    </FormControl>
+                                </Grid>
+                                <Grid item xs={12} md={2}>
+                                    <FormControl fullWidth size="small" sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                                        <InputLabel>Type</InputLabel>
+                                        <Select value={directionFilter} label="Type" onChange={(e) => handleFilterChange(() => setDirectionFilter(e.target.value as any))}>
+                                            <MenuItem value="all">All Types</MenuItem>
+                                            <MenuItem value="credit">Credit</MenuItem>
+                                            <MenuItem value="debit">Debit</MenuItem>
+                                        </Select>
+                                    </FormControl>
+                                </Grid>
+                            </>
+                        ) : (
+                            <Grid item xs={12} md={3}>
+                                <FormControl fullWidth size="small" sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                                    <InputLabel>Category</InputLabel>
+                                    <Select value={categoryFilter} label="Category" onChange={(e) => handleFilterChange(() => setCategoryFilter(e.target.value as string))}>
+                                        {CATEGORY_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+                                    </Select>
+                                </FormControl>
+                            </Grid>
+                        )}
                         <Grid item xs={12} md={2}>
                             <TextField fullWidth size="small" type="date" label="Start Date" value={startDate}
                                 onChange={(e) => handleFilterChange(() => setStartDate(e.target.value))} InputLabelProps={{ shrink: true }}
@@ -565,24 +575,21 @@ const TransactionManagement: React.FC = () => {
                                 <TableHead>
                                     <TableRow sx={{ '& th': { fontWeight: 700, bgcolor: '#f8faff', borderBottom: '2px solid #e2e8f0' } }}>
                                         <TableCell>Date / Time</TableCell>
-                                        <TableCell>Organisation</TableCell>
                                         <TableCell>Reference</TableCell>
                                         <TableCell>Account No.</TableCell>
                                         <TableCell>Status</TableCell>
                                         <TableCell>Type</TableCell>
                                         <TableCell align="right">Credit</TableCell>
-                                        {/* <TableCell align="right">Closing Balance</TableCell> */}
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
                                     {filteredTransactions.length === 0 ? (
-                                        <TableRow><TableCell colSpan={8} align="center" sx={{ py: 5, color: 'text.secondary' }}>{loading ? 'Loading…' : 'No transactions found'}</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={6} align="center" sx={{ py: 5, color: 'text.secondary' }}>{loading ? 'Loading…' : 'No transactions found'}</TableCell></TableRow>
                                     ) : filteredTransactions.map((tx) => (
                                         <TableRow key={tx.id} hover sx={{ '&:hover': { bgcolor: '#f8faff' } }}>
                                             <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDateTime(tx.created_at)}</TableCell>
-                                            <TableCell><Typography variant="body2" fontWeight={600}>{tx.org_name}</Typography></TableCell>
                                             <TableCell><Typography variant="body2" fontFamily="monospace" fontSize={12}>{tx.reference}</Typography></TableCell>
-                                            <TableCell><Typography variant="body2" color="text.secondary">{tx.account_number || '—'}</Typography></TableCell>
+                                            <TableCell><Typography variant="body2" color="text.secondary">{tx.account_no || '—'}</Typography></TableCell>
                                             <TableCell><Chip label={tx.status} size="small" color={statusColor(tx.status)} sx={{ fontWeight: 600, textTransform: 'capitalize' }} /></TableCell>
                                             <TableCell><Chip label={tx.direction} size="small" color={directionColor(tx.direction)} variant="outlined" sx={{ fontWeight: 600, textTransform: 'capitalize' }} /></TableCell>
                                             <TableCell align="right">
@@ -590,9 +597,6 @@ const TransactionManagement: React.FC = () => {
                                                     <Typography fontWeight={700} color="success.main">+{formatCurrency(tx.value)}</Typography>
                                                 ) : <Typography color="text.disabled">—</Typography>}
                                             </TableCell>
-                                            {/* <TableCell align="right">
-                                                <Typography variant="body2" fontWeight={600}>{tx.closing_balance !== undefined && tx.closing_balance !== 0 ? formatCurrency(tx.closing_balance) : '—'}</Typography>
-                                            </TableCell> */}
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -614,27 +618,33 @@ const TransactionManagement: React.FC = () => {
                             <Table size="small">
                                 <TableHead>
                                     <TableRow sx={{ '& th': { fontWeight: 700, bgcolor: '#f8faff', borderBottom: '2px solid #e2e8f0' } }}>
-                                        <TableCell>Ledger Ref</TableCell>
-                                        <TableCell>Transaction Ref</TableCell>
-                                        <TableCell>Organisation</TableCell>
-                                        <TableCell>Type</TableCell>
-                                        <TableCell align="right">Amount</TableCell>
-                                        <TableCell>Status</TableCell>
                                         <TableCell>Date / Time</TableCell>
+                                        <TableCell>Transaction Ref</TableCell>
+                                        <TableCell>Category</TableCell>
+                                        <TableCell align="right">Debit</TableCell>
+                                        <TableCell align="right">Credit</TableCell>
+                                        <TableCell align="right">Closing Balance</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
                                     {filteredLedger.length === 0 ? (
-                                        <TableRow><TableCell colSpan={7} align="center" sx={{ py: 5, color: 'text.secondary' }}>{loading ? 'Loading…' : 'No ledger entries found'}</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={6} align="center" sx={{ py: 5, color: 'text.secondary' }}>{loading ? 'Loading…' : 'No ledger entries found'}</TableCell></TableRow>
                                     ) : filteredLedger.map((entry) => (
                                         <TableRow key={entry.id} hover sx={{ '&:hover': { bgcolor: '#f8faff' } }}>
-                                            <TableCell><Typography variant="body2" fontFamily="monospace" fontSize={12}>{entry.ledger_ref}</Typography><Typography variant="caption" color="text.secondary">{entry.narration}</Typography></TableCell>
-                                            <TableCell><Typography variant="body2" fontFamily="monospace" fontSize={12}>{entry.transaction_ref}</Typography></TableCell>
-                                            <TableCell>{entry.org_name}</TableCell>
-                                            <TableCell><Chip label={entry.direction} size="small" color={directionColor(entry.direction)}/></TableCell>
-                                            <TableCell align="right">{formatCurrency(entry.amount)}</TableCell>
-                                            <TableCell><Chip label={entry.status} size="small" color={statusColor(entry.status)} /></TableCell>
                                             <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDateTime(entry.created_at)}</TableCell>
+                                            <TableCell><Typography variant="body2" fontFamily="monospace" fontSize={12}>{entry.transaction_ref}</Typography></TableCell>
+                                            <TableCell><Chip label={categoryLabel(entry.category)} size="small" variant="outlined" color="primary" /></TableCell>
+                                            <TableCell align="right">
+                                                {entry.debit_amount > 0
+                                                    ? <Typography fontWeight={700} color="error.main">-{formatCurrency(entry.debit_amount)}</Typography>
+                                                    : <Typography color="text.disabled">₦0.00</Typography>}
+                                            </TableCell>
+                                            <TableCell align="right">
+                                                {entry.credit_amount > 0
+                                                    ? <Typography fontWeight={700} color="success.main">+{formatCurrency(entry.credit_amount)}</Typography>
+                                                    : <Typography color="text.disabled">₦0.00</Typography>}
+                                            </TableCell>
+                                            <TableCell align="right"><Typography fontWeight={600}>{formatCurrency(entry.closing_balance)}</Typography></TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -652,7 +662,7 @@ const TransactionManagement: React.FC = () => {
             </Snackbar>
 
             {/* ══════════════════════════════════════════════════════════════════════
-                GENERATE REPORT DIALOG
+                GENERATE REPORT DIALOG — sourced from the Ledger API
             ══════════════════════════════════════════════════════════════════════ */}
             <Dialog open={reportOpen} onClose={() => { if (!generating) setReportOpen(false); }} maxWidth="sm" fullWidth
                 PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
@@ -664,9 +674,9 @@ const TransactionManagement: React.FC = () => {
                             <Assessment sx={{ fontSize: 26 }} />
                             <Box>
                                 <Typography variant="h6" fontWeight={700} color="#fff">Generate Report</Typography>
-                                {/* <Typography variant="caption" sx={{ color: '#93c5fd' }}>
-                                    Exports: Date · Vendor · Reference · account_number · Status · Reversal · Credit · closing_balance
-                                </Typography> */}
+                                <Typography variant="caption" sx={{ color: '#93c5fd' }}>
+                                    Sourced from the transaction ledger
+                                </Typography>
                             </Box>
                         </Stack>
                         <IconButton onClick={() => { if (!generating) setReportOpen(false); }} size="small" sx={{ color: '#93c5fd', '&:hover': { color: '#fff' } }}>
@@ -697,74 +707,71 @@ const TransactionManagement: React.FC = () => {
                                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8faff' } }} />
                         </Grid>
 
-                        {/* ── Vendor search (CHANGED from Transaction Ref) ── */}
-                        <Grid item xs={12}>
+                        {/* Category (was Purpose) */}
+                        <Grid item xs={12} md={6}>
+                            <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8faff' } }}>
+                                <InputLabel>Category</InputLabel>
+                                <Select value={reportForm.category} label="Category" onChange={e => setReportForm(p => ({ ...p, category: e.target.value }))}>
+                                    {CATEGORY_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+                                </Select>
+                            </FormControl>
+                        </Grid>
+
+                        {/* Search by reference / account */}
+                        <Grid item xs={12} md={6}>
                             <TextField
                                 fullWidth
-                                label="Vendor"
-                                placeholder="Filter by vendor name…"
-                                value={reportForm.vendor}
-                                onChange={e => setReportForm(p => ({ ...p, vendor: e.target.value }))}
+                                label="Search Reference"
+                                placeholder="Filter by transaction ref…"
+                                value={reportForm.search}
+                                onChange={e => setReportForm(p => ({ ...p, search: e.target.value }))}
                                 InputProps={{
                                     startAdornment: (
                                         <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>
                                     ),
                                 }}
-                                helperText="Leave empty to include all vendors"
                                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8faff' } }}
                             />
                         </Grid>
 
-                        {/* Purpose */}
-                        <Grid item xs={12} md={6}>
-                            <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8faff' } }}>
-                                <InputLabel>Purpose</InputLabel>
-                                <Select value={reportForm.purpose} label="Purpose" onChange={e => setReportForm(p => ({ ...p, purpose: e.target.value }))}>
-                                    {PURPOSE_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
-                                </Select>
-                            </FormControl>
-                        </Grid>
-
-                        {/* Status */}
-                        <Grid item xs={12} md={6}>
-                            <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8faff' } }}>
-                                <InputLabel>Status</InputLabel>
-                                <Select value={reportForm.status} label="Status" onChange={e => setReportForm(p => ({ ...p, status: e.target.value }))}>
-                                    <MenuItem value="all">All Status</MenuItem>
-                                    <MenuItem value="success">✓ Success</MenuItem>
-                                    <MenuItem value="pending">⏳ Pending</MenuItem>
-                                    <MenuItem value="failed">✕ Failed</MenuItem>
-                                </Select>
-                            </FormControl>
-                        </Grid>
-
-                        {/* Direction */}
-                        <Grid item xs={12} md={6}>
-                            <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8faff' } }}>
-                                <InputLabel>Type</InputLabel>
-                                <Select value={reportForm.direction} label="Type" onChange={e => setReportForm(p => ({ ...p, direction: e.target.value }))}>
-                                    <MenuItem value="all">Credit &amp; Debit</MenuItem>
-                                    <MenuItem value="credit">Credit Only</MenuItem>
-                                    <MenuItem value="debit">Debit Only</MenuItem>
-                                </Select>
-                            </FormControl>
-                        </Grid>
-
-                        {/* Template preview */}
+                        {/* ── Toggleable report columns ── */}
                         <Grid item xs={12}>
                             <Box sx={{ p: 2, bgcolor: '#f0f7ff', borderRadius: 2, border: '1px solid #bfdbfe' }}>
-                                <Typography variant="body2" color="primary.main" fontWeight={700} mb={1}>
-                                    Columns that will be exported in the report:
-                                </Typography>
-                                <Stack direction="row" spacing={0.5} flexWrap="wrap" gap={0.5}>
-                                    {['Date', 'Vendor', 'Reference', 'account_number', 'Status', 'Reversal', 'Credit', 'Date', 'closing_balance'].map((col, i) => (
-                                        <Chip key={`${col}-${i}`} label={col} size="small" variant="outlined"
-                                            sx={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 600, borderColor: '#93c5fd', color: '#1e3a8a' }} />
-                                    ))}
+                                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+                                    <Typography variant="body2" color="primary.main" fontWeight={700}>
+                                        Report columns — tap to include or remove
+                                    </Typography>
+                                    <Tooltip title="Reset to all columns" arrow>
+                                        <IconButton size="small" onClick={resetReportColumns}>
+                                            <RestartAlt fontSize="small" sx={{ color: '#1e3a8a' }} />
+                                        </IconButton>
+                                    </Tooltip>
                                 </Stack>
-                                {/* <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                                    Fields not returned by the API will appear as empty cells in the report.
-                                </Typography> */}
+                                <Stack direction="row" spacing={1} flexWrap="wrap" gap={1}>
+                                    {REPORT_COLUMNS.map(col => {
+                                        const active = reportColumns[col.key];
+                                        return (
+                                            <Chip
+                                                key={col.key}
+                                                label={col.label}
+                                                onClick={() => toggleReportColumn(col.key)}
+                                                icon={active ? <CheckCircle sx={{ fontSize: 16 }} /> : <RadioButtonUnchecked sx={{ fontSize: 16 }} />}
+                                                sx={{
+                                                    cursor: 'pointer', fontWeight: 600,
+                                                    bgcolor: active ? '#1e3a8a' : '#fff',
+                                                    color: active ? '#fff' : '#64748b',
+                                                    border: '1px solid', borderColor: active ? '#1e3a8a' : '#cbd5e1',
+                                                    '& .MuiChip-icon': { color: active ? '#fff' : '#94a3b8' },
+                                                    '&:hover': { bgcolor: active ? '#1e40af' : '#f1f5f9' },
+                                                    transition: 'all 0.15s ease',
+                                                }}
+                                            />
+                                        );
+                                    })}
+                                </Stack>
+                                <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>
+                                    Unchecked columns are left out of the exported file entirely — click a column to add it back.
+                                </Typography>
                             </Box>
                         </Grid>
                     </Grid>
@@ -775,7 +782,7 @@ const TransactionManagement: React.FC = () => {
                     <Stack direction="row" spacing={1.5} justifyContent="space-between" alignItems="center">
                         <Button variant="text" onClick={resetReportForm} disabled={generating}
                             sx={{ textTransform: 'none', color: '#64748b', borderRadius: 2 }}>
-                            Reset Filters
+                            Reset All
                         </Button>
                         <Stack direction="row" spacing={1.5}>
                             <Button variant="outlined" onClick={() => setReportOpen(false)} disabled={generating}

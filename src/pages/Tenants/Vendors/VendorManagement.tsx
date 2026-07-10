@@ -12,6 +12,7 @@ import {
     CheckCircle, ChevronRight, Close, Domain, Download, People, Receipt,
     Refresh, Search, Delete, NavigateNext, Settings, TrendingDown, Person,
     AccountBalanceWallet, ErrorOutline, ListAlt, ContentCopy, History,
+    WarningAmber, PauseCircleOutline,
 } from '@mui/icons-material';
 import { useAppSelector } from '../../../store/hooks';
 import {
@@ -19,6 +20,7 @@ import {
     extractBackendError,
     VendorConfigPayload,
     FundingRequest,
+    SuspendedVendorResult,
 } from './../../../services/vendormanagementservice';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -99,7 +101,7 @@ const statusColor = (s?: string): ChipColor => {
     switch ((s || '').toLowerCase()) {
         case 'active': case 'success': case 'successful': case 'completed': case 'approved': return 'success';
         case 'inactive': case 'suspended': return 'warning';
-        case 'pending': case 'review': return 'info';
+        case 'pending': case 'review': case 'pending_review': case 'pending_approval': return 'info';
         case 'failed': case 'rejected': case 'declined': return 'error';
         default: return 'default';
     }
@@ -278,6 +280,19 @@ const VendorManagement: React.FC = () => {
     const [fundingRequestPage, setFundingRequestPage] = useState(0);
     const [fundingRequestRowsPerPage, setFundingRequestRowsPerPage] = useState(8);
 
+    // ── Delete confirmation ───────────────────────────────────────────────────
+    const [deleteConfirmVendor, setDeleteConfirmVendor] = useState<RelatedVendor | null>(null);
+    const [deletingVendor, setDeletingVendor] = useState(false);
+
+    // ── Suspend confirmation + result ─────────────────────────────────────────
+    const [suspendConfirmVendor, setSuspendConfirmVendor] = useState<RelatedVendor | null>(null);
+    const [suspendingVendor, setSuspendingVendor] = useState(false);
+    const [suspendResultDialog, setSuspendResultDialog] = useState<
+        | { success: true; data: SuspendedVendorResult }
+        | { success: false; message: string }
+        | null
+    >(null);
+
     // ── Computed ──────────────────────────────────────────────────────────────
     const allowedHierarchies = useMemo<VendorLevel[]>(() => {
         if (!selectedParentVendor) return [];
@@ -406,6 +421,50 @@ const VendorManagement: React.FC = () => {
         finally { setFundingWallet(false); }
     };
 
+    // ── Delete handlers ───────────────────────────────────────────────────────
+    const openDeleteConfirm = (vendor: RelatedVendor) => setDeleteConfirmVendor(vendor);
+    const closeDeleteConfirm = () => { if (!deletingVendor) setDeleteConfirmVendor(null); };
+
+    const confirmDeleteVendor = async () => {
+        if (!deleteConfirmVendor) return;
+        setDeletingVendor(true);
+        try {
+            await vendorManagementService.deleteVendor(deleteConfirmVendor.id);
+            setSuccess('Vendor deleted successfully');
+            setDeleteConfirmVendor(null);
+            setSelectedVendor(null);
+            fetchRelatedVendors();
+        } catch (err: any) {
+            setError(extractBackendError(err));
+            setDeleteConfirmVendor(null);
+        } finally {
+            setDeletingVendor(false);
+        }
+    };
+
+    // ── Suspend handlers ──────────────────────────────────────────────────────
+    const openSuspendConfirm = (vendor: RelatedVendor) => setSuspendConfirmVendor(vendor);
+    const closeSuspendConfirm = () => { if (!suspendingVendor) setSuspendConfirmVendor(null); };
+    const closeSuspendResultDialog = () => setSuspendResultDialog(null);
+
+    const confirmSuspendVendor = async () => {
+        if (!suspendConfirmVendor) return;
+        setSuspendingVendor(true);
+        try {
+            const result = await vendorManagementService.suspendVendor({ vendor: suspendConfirmVendor.id });
+            setSuspendConfirmVendor(null);
+            setSuspendResultDialog({ success: true, data: result });
+            // Reflect the updated status immediately if this vendor is currently selected
+            setSelectedVendor(prev => (prev && prev.id === result.id ? { ...prev, account_status: result.account_status } : prev));
+            fetchRelatedVendors();
+        } catch (err: any) {
+            setSuspendConfirmVendor(null);
+            setSuspendResultDialog({ success: false, message: extractBackendError(err) });
+        } finally {
+            setSuspendingVendor(false);
+        }
+    };
+
     // ─────────────────────────────────────────────────────────────────────────
     // FETCHES
     // ─────────────────────────────────────────────────────────────────────────
@@ -465,36 +524,27 @@ const VendorManagement: React.FC = () => {
         finally { setDetailLoading(false); }
     }, []);
 
-    // Retrieve all funding requests — GET /vendor/request-funding/
+    // Retrieve all funding requests — GET /vendor/request-funding/?request_status=...
     const fetchFundingRequests = useCallback(
-    async (
-        pg = 1,
-        ps = 8,
-        status = fundingRequestStatus
-    ) => {
-        setFundingRequestsLoading(true);
-        setFundingRequestsError(null);
-
-        try {
-            const payload =
-                await vendorManagementService.getFundingRequests({
-                    request_status: status,
-                    page: pg,
-                    page_size: ps,
+        async (pg = 1, ps = 8, status = fundingRequestStatus) => {
+            setFundingRequestsLoading(true);
+            setFundingRequestsError(null);
+            try {
+                const payload = await vendorManagementService.getFundingRequests({
+                    request_status: status, page: pg, page_size: ps,
                 });
-
-            setFundingRequests(payload?.results || []);
-            setFundingRequestsCount(Number(payload?.count || 0));
-        } catch (err: any) {
-            setFundingRequestsError(extractBackendError(err));
-            setFundingRequests([]);
-            setFundingRequestsCount(0);
-        } finally {
-            setFundingRequestsLoading(false);
-        }
-    },
-    [fundingRequestStatus]
-);
+                setFundingRequests(payload?.results || []);
+                setFundingRequestsCount(Number(payload?.count || 0));
+            } catch (err: any) {
+                setFundingRequestsError(extractBackendError(err));
+                setFundingRequests([]);
+                setFundingRequestsCount(0);
+            } finally {
+                setFundingRequestsLoading(false);
+            }
+        },
+        [fundingRequestStatus]
+    );
 
     const openFundingRequests = () => {
         setFundingRequestsOpen(true); setFundingRequestPage(0);
@@ -505,14 +555,6 @@ const VendorManagement: React.FC = () => {
     useEffect(() => {
         if (fundingRequestsOpen) fetchFundingRequests(fundingRequestPage + 1, fundingRequestRowsPerPage);
     }, [fundingRequestsOpen, fundingRequestPage, fundingRequestRowsPerPage, fetchFundingRequests]);
-
-    const handleDeleteVendor = async (vendorId: number) => {
-        if (!window.confirm('Are you sure you want to delete this vendor?')) return;
-        try {
-            await vendorManagementService.deleteVendor(vendorId);
-            setSuccess('Vendor deleted successfully'); setSelectedVendor(null); fetchRelatedVendors();
-        } catch (err: any) { setError(extractBackendError(err)); }
-    };
 
     useEffect(() => { fetchRelatedVendors(); fetchVendorAnalytics(); }, [fetchRelatedVendors, fetchVendorAnalytics]);
     useEffect(() => {
@@ -785,10 +827,10 @@ const VendorManagement: React.FC = () => {
                     <Typography variant="body2" color="text.secondary">Live related vendors · updated {lastUpdated.toLocaleTimeString()}</Typography>
                 </Box>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
-                    <Stack direction="row" spacing={2}>
+                    {/* <Stack direction="row" spacing={2}>
                         <TextField label="Start Date" type="date" size="small" value={cardStartDate} onChange={e => setCardStartDate(e.target.value)} InputLabelProps={{ shrink: true }} sx={inputSx} />
                         <TextField label="End Date" type="date" size="small" value={cardEndDate} onChange={e => setCardEndDate(e.target.value)} InputLabelProps={{ shrink: true }} sx={inputSx} />
-                    </Stack>
+                    </Stack> */}
                     <Stack direction="row" spacing={1}>
                         <Button variant="outlined" startIcon={<History />} onClick={openFundingRequests}>Funding Requests</Button>
                         <Button variant="outlined" startIcon={<Refresh />} onClick={() => { fetchRelatedVendors(); fetchVendorAnalytics(); }} disabled={loading || analyticsLoading}>Refresh</Button>
@@ -806,16 +848,9 @@ const VendorManagement: React.FC = () => {
                         <Grid item xs={12} md={3}><StatCard title={`Total ${statFilter?.replace('_', ' ')} vendors`} value={formatNumber(filteredStats.total)} icon={<People />} color="primary" subtitle="in current filter" /></Grid>
                         <Grid item xs={12} md={3}><StatCard title="Total Active" value={formatNumber(filteredStats.active)} icon={<CheckCircle />} color="success" subtitle={`${Math.round((filteredStats.active / Math.max(filteredStats.total, 1)) * 100)}% of group`} /></Grid>
                         <Grid item xs={12} md={3}><StatCard title="Total Inactive" value={formatNumber(filteredStats.inactive)} icon={<TrendingDown />} color="error" subtitle="inactive / suspended" /></Grid>
-                        <Grid item xs={12} md={3}><StatCard title="Group Balance" value={formatCurrency(filteredStats.balance)} icon={<AccountBalance />} color="info" subtitle="combined wallet balance" /></Grid>
+                        <Grid item xs={12} md={3}><StatCard title="Total Subvendor Balance" value={formatCurrency(filteredStats.balance)} icon={<AccountBalance />} color="info" subtitle="combined wallet balance" /></Grid>
                     </>
-                ) : (
-                    <>
-                        <Grid item xs={12} md={3}><StatCard title="Today's Volume" value={formatCurrency(analytics.processed_today)} icon={<Business />} color="primary" /></Grid>
-                        <Grid item xs={12} md={3}><StatCard title="Active Vendors" value={formatNumber(analytics.active)} icon={<CheckCircle />} color="success" /></Grid>
-                        <Grid item xs={12} md={3}><StatCard title="Total Balance" value={formatCurrency(analytics.total_balance)} icon={<AccountBalance />} color="info" /></Grid>
-                        <Grid item xs={12} md={3}><StatCard title="Transactions" value={formatNumber(analytics.total_transactions)} icon={<Receipt />} color="warning" /></Grid>
-                    </>
-                )}
+                ) : null}
             </Grid>
 
             {!selectedVendor ? (
@@ -902,7 +937,7 @@ const VendorManagement: React.FC = () => {
                     <Grid container spacing={2} mb={3}>
                         <Grid item xs={12} md={3}><StatCard title="Wallet Balance" value={formatCurrency(getWalletBalance(selectedVendor))} icon={<AccountBalance />} color="success" /></Grid>
                         <Grid item xs={12} md={3}><StatCard title="Transactions" value={formatNumber(selectedTransactionCount)} icon={<Receipt />} color="warning" /></Grid>
-                        <Grid item xs={12} md={3}><StatCard title="Children" value={formatNumber(selectedDirectChildrenCount)} icon={<Business />} color="primary" /></Grid>
+                        <Grid item xs={12} md={3}><StatCard title="Total Subordinates" value={formatNumber(selectedDirectChildrenCount)} icon={<Business />} color="primary" /></Grid>
                         <Grid item xs={12} md={3}><StatCard title="Status" value={selectedVendor.account_status} icon={<CheckCircle />} color="info" /></Grid>
                     </Grid>
                     <Grid container spacing={3}>
@@ -920,21 +955,33 @@ const VendorManagement: React.FC = () => {
                                                     <Chip label={getLocation(selectedVendor)} variant="outlined" />
                                                 </Stack>
                                             </Stack>
-                                            {/* ── Delete + Fund Wallet buttons ── */}
-                                            <Stack direction="row" spacing={1} flexShrink={0}>
+                                            {/* ── Fund / Suspend / Delete buttons ── */}
+                                            <Stack direction="row" spacing={1} flexShrink={0} flexWrap="wrap">
                                                 <Button
                                                     variant="outlined"
                                                     startIcon={<AccountBalanceWallet />}
                                                     onClick={() => openFundWallet(selectedVendor)}
                                                     sx={{
                                                         height: 36, textTransform: 'none', borderRadius: 2,
-                                                        borderColor: '#16a34a', color: '#16a34a',
-                                                        '&:hover': { bgcolor: '#f0fdf4', borderColor: '#15803d' },
+                                                        borderColor: '#1e3a8a', color: '#1e3a8a',
+                                                        '&:hover': { bgcolor: '#eff6ff', borderColor: '#1e40af' },
                                                     }}
                                                 >
                                                     Fund Subordinate Wallet
                                                 </Button>
-                                                <Button variant="contained" color="error" sx={{ height: 36, textTransform: 'none', borderRadius: 2 }} startIcon={<Delete />} onClick={() => handleDeleteVendor(selectedVendor.id)}>Delete</Button>
+                                                <Button
+                                                    variant="outlined"
+                                                    startIcon={<PauseCircleOutline />}
+                                                    onClick={() => openSuspendConfirm(selectedVendor)}
+                                                    sx={{
+                                                        height: 36, textTransform: 'none', borderRadius: 2,
+                                                        borderColor: '#d97706', color: '#d97706',
+                                                        '&:hover': { bgcolor: '#fffbeb', borderColor: '#b45309' },
+                                                    }}
+                                                >
+                                                    Suspend
+                                                </Button>
+                                                <Button variant="contained" color="error" sx={{ height: 36, textTransform: 'none', borderRadius: 2 }} startIcon={<Delete />} onClick={() => openDeleteConfirm(selectedVendor)}>Delete</Button>
                                             </Stack>
                                         </Stack>
                                         <Grid container spacing={2}>
@@ -1061,22 +1108,22 @@ const VendorManagement: React.FC = () => {
             </Dialog>
 
             {/* ══════════════════════════════════════════════════════════════════
-                REQUEST FUNDING DIALOG  — POST /vendor/request-funding/
+                REQUEST FUNDING DIALOG  — PUT /vendor/fund/child/
             ══════════════════════════════════════════════════════════════════ */}
             <Dialog open={Boolean(fundWalletVendor)} onClose={closeFundWallet} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
                 {/* Header */}
-                <Box sx={{ background: 'linear-gradient(135deg, #211580 0%, #1f16a3 100%)', px: 3, pt: 3, pb: 2.5, color: '#fff' }}>
+                <Box sx={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', px: 3, pt: 3, pb: 2.5, color: '#fff' }}>
                     <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
                         <Box>
                             <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
                                 <AccountBalanceWallet sx={{ fontSize: 22 }} />
                                 <Typography variant="h6" fontWeight={700} color="#fff">Request Wallet Funding</Typography>
                             </Stack>
-                            <Typography variant="caption" sx={{ color: '#c7d2fe' }}>
+                            <Typography variant="caption" sx={{ color: '#93c5fd' }}>
                                 This only submits a funding request — no funds move yet.
                             </Typography>
                         </Box>
-                        <IconButton onClick={closeFundWallet} size="small" sx={{ color: '#c7d2fe', '&:hover': { color: '#fff' } }}><Close fontSize="small" /></IconButton>
+                        <IconButton onClick={closeFundWallet} size="small" sx={{ color: '#93c5fd', '&:hover': { color: '#fff' } }}><Close fontSize="small" /></IconButton>
                     </Stack>
                 </Box>
 
@@ -1115,8 +1162,8 @@ const VendorManagement: React.FC = () => {
 
                         {/* Summary */}
                         {fundForm.amount && Number(fundForm.amount) > 0 && (
-                            <Box sx={{ p: 2, bgcolor: '#f0fdf4', borderRadius: 2, border: '1px solid #bbf7d0' }}>
-                                <Typography variant="body2" color="#15803d" fontWeight={700}>
+                            <Box sx={{ p: 2, bgcolor: '#eff6ff', borderRadius: 2, border: '1px solid #bfdbfe' }}>
+                                <Typography variant="body2" color="#1e3a8a" fontWeight={700}>
                                     You are requesting {formatCurrency(fundForm.amount)} for {fundWalletVendor?.business_name}'s wallet
                                 </Typography>
                             </Box>
@@ -1130,7 +1177,7 @@ const VendorManagement: React.FC = () => {
                         fullWidth variant="contained"
                         onClick={handleFundWallet}
                         disabled={fundingWallet || !fundForm.amount || Number(fundForm.amount) <= 0}
-                        sx={{ borderRadius: 2, textTransform: 'none', bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' }, fontWeight: 700 }}
+                        sx={{ borderRadius: 2, textTransform: 'none', bgcolor: '#1e3a8a', '&:hover': { bgcolor: '#1e40af' }, fontWeight: 700 }}
                     >
                         {fundingWallet ? <CircularProgress size={18} color="inherit" /> : 'Submit Request'}
                     </Button>
@@ -1184,7 +1231,6 @@ const VendorManagement: React.FC = () => {
                             </Box>
                         </DialogContent>
                         <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
-                            {/* <Button fullWidth variant="outlined" onClick={() => { closeFundSuccessResult(); openFundingRequests(); }} startIcon={<ListAlt />} sx={{ borderRadius: 2, textTransform: 'none' }}>View All Requests</Button> */}
                             <Button fullWidth variant="contained" onClick={closeFundSuccessResult} sx={{ borderRadius: 2, textTransform: 'none', bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' }, fontWeight: 700 }}>Done</Button>
                         </DialogActions>
                     </Box>
@@ -1192,8 +1238,8 @@ const VendorManagement: React.FC = () => {
             </Dialog>
 
             {/* ══════════════════════════════════════════════════════════════════
-                FUNDING REQUESTS PAGE — GET /vendor/request-funding/
-            ══════════════════════════════════════════════════════════════════ */} 
+                FUNDING REQUESTS PAGE — GET /vendor/request-funding/?request_status=...
+            ══════════════════════════════════════════════════════════════════ */}
             <Dialog open={fundingRequestsOpen} onClose={closeFundingRequests} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
                 <Box sx={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', px: 3, pt: 3, pb: 2.5, color: '#fff' }}>
                     <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
@@ -1217,42 +1263,30 @@ const VendorManagement: React.FC = () => {
                     </Grid>
 
                     <Paper variant="outlined" sx={{ borderRadius: 2 }}>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, py: 1.5 }}>
-                            <Typography variant="subtitle1" fontWeight={700}>All Requests  {fundingRequestsLoading && <CircularProgress size={20} />}</Typography>
-                                <Stack
-                                    direction="row"
-                                    justifyContent="space-between"
-                                    alignItems="center"
-                                    mb={2}
-                                >
-                                    <FormControl size="small" sx={{ minWidth: 220 }}>
-                                        <InputLabel>Status</InputLabel>
-
-                                        <Select
-                                            label="Status"
-                                            value={fundingRequestStatus}
-                                            onChange={(e) => {
-                                                setFundingRequestStatus(e.target.value as any);
-                                                setFundingRequestPage(0);
-                                            }}
-                                        >
-                                            <MenuItem value="approved">Approved</MenuItem>
-                                            <MenuItem value="pending_review">
-                                                Pending Review
-                                            </MenuItem>
-                                            <MenuItem value="pending_approval">
-                                                Pending Approval
-                                            </MenuItem>
-                                            <MenuItem value="rejected">
-                                                Rejected
-                                            </MenuItem>
-                                        </Select>
-                                    </FormControl>
-                                    <Stack spacing={1}>
-                                <IconButton size="small" onClick={() => fetchFundingRequests(fundingRequestPage + 1, fundingRequestRowsPerPage)}><Refresh fontSize="small" /></IconButton>
-                            </Stack>
+                        <Stack sx={{ px: 2, py: 1.5 }} spacing={1.5}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Typography variant="subtitle1" fontWeight={700}>All Requests</Typography>
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                    {fundingRequestsLoading && <CircularProgress size={20} />}
+                                    <IconButton size="small" onClick={() => fetchFundingRequests(fundingRequestPage + 1, fundingRequestRowsPerPage)}><Refresh fontSize="small" /></IconButton>
                                 </Stack>
-                                 
+                            </Stack>
+                            <FormControl size="small" sx={{ minWidth: 220 }}>
+                                <InputLabel>Status</InputLabel>
+                                <Select
+                                    label="Status"
+                                    value={fundingRequestStatus}
+                                    onChange={(e) => {
+                                        setFundingRequestStatus(e.target.value as any);
+                                        setFundingRequestPage(0);
+                                    }}
+                                >
+                                    <MenuItem value="approved">Approved</MenuItem>
+                                    <MenuItem value="pending_review">Pending Review</MenuItem>
+                                    <MenuItem value="pending_approval">Pending Approval</MenuItem>
+                                    <MenuItem value="rejected">Rejected</MenuItem>
+                                </Select>
+                            </FormControl>
                         </Stack>
                         <Divider />
                         <Box sx={{ overflowX: 'auto' }}>
@@ -1268,7 +1302,6 @@ const VendorManagement: React.FC = () => {
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
-                                    
                                     {fundingRequests.length === 0 ? (
                                         <TableRow><TableCell colSpan={6} align="center" sx={{ py: 5, color: 'text.secondary' }}>{fundingRequestsLoading ? 'Loading…' : 'No funding requests found'}</TableCell></TableRow>
                                     ) : fundingRequests.map(r => (
@@ -1484,6 +1517,178 @@ const VendorManagement: React.FC = () => {
                                     borderRadius: 2, textTransform: 'none', fontWeight: 700,
                                     bgcolor: configResultDialog.success ? '#16a34a' : '#dc2626',
                                     '&:hover': { bgcolor: configResultDialog.success ? '#15803d' : '#b91c1c' },
+                                }}
+                            >
+                                Done
+                            </Button>
+                        </DialogActions>
+                    </Box>
+                )}
+            </Dialog>
+
+            {/* ══════════════════════════════════════════════════════════════════
+                DELETE CONFIRMATION — nice customized alert replacing window.confirm
+            ══════════════════════════════════════════════════════════════════ */}
+            <Dialog open={Boolean(deleteConfirmVendor)} onClose={closeDeleteConfirm} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+                {deleteConfirmVendor && (
+                    <Box>
+                        <Box sx={{
+                            background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                            px: 3, pt: 4, pb: 3, color: '#fff', textAlign: 'center',
+                        }}>
+                            <Box sx={{
+                                width: 64, height: 64, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.18)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 1.5,
+                            }}>
+                                <WarningAmber sx={{ fontSize: 36 }} />
+                            </Box>
+                            <Typography variant="h6" fontWeight={700} color="#fff">Delete Vendor?</Typography>
+                            <Typography variant="body2" sx={{ color: '#fecaca', mt: 0.5 }}>
+                                This action cannot be undone.
+                            </Typography>
+                        </Box>
+                        <DialogContent sx={{ pt: 2.5 }}>
+                            <Box sx={{ p: 2, bgcolor: '#fef2f2', borderRadius: 2, border: '1px solid #fecaca', mb: 1.5 }}>
+                                <Typography variant="body2" color="error.dark">
+                                    You are about to permanently delete{' '}
+                                    <strong>{deleteConfirmVendor.business_name}</strong>{' '}
+                                    (ID: {deleteConfirmVendor.id}). All associated data under this vendor may also be affected.
+                                </Typography>
+                            </Box>
+                            <Stack spacing={0}>
+                                <ResultRow label="Business Name" value={deleteConfirmVendor.business_name} />
+                                <ResultRow label="Email" value={deleteConfirmVendor.email} />
+                                <ResultRow label="Hierarchy" value={<Chip label={levelLabel(deleteConfirmVendor.hierachy)} size="small" color={levelColor(deleteConfirmVendor.hierachy)} variant="outlined" />} />
+                            </Stack>
+                        </DialogContent>
+                        <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+                            <Button fullWidth variant="outlined" onClick={closeDeleteConfirm} disabled={deletingVendor} sx={{ borderRadius: 2, textTransform: 'none' }}>Cancel</Button>
+                            <Button
+                                fullWidth variant="contained" color="error"
+                                onClick={confirmDeleteVendor}
+                                disabled={deletingVendor}
+                                sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700 }}
+                            >
+                                {deletingVendor ? <CircularProgress size={18} color="inherit" /> : 'Yes, Delete Vendor'}
+                            </Button>
+                        </DialogActions>
+                    </Box>
+                )}
+            </Dialog>
+
+            {/* ══════════════════════════════════════════════════════════════════
+                SUSPEND CONFIRMATION — PUT /vendor/suspend-child/
+            ══════════════════════════════════════════════════════════════════ */}
+            <Dialog open={Boolean(suspendConfirmVendor)} onClose={closeSuspendConfirm} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+                {suspendConfirmVendor && (
+                    <Box>
+                        <Box sx={{
+                            background: 'linear-gradient(135deg, #d97706 0%, #b45309 100%)',
+                            px: 3, pt: 4, pb: 3, color: '#fff', textAlign: 'center',
+                        }}>
+                            <Box sx={{
+                                width: 64, height: 64, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.18)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 1.5,
+                            }}>
+                                <PauseCircleOutline sx={{ fontSize: 36 }} />
+                            </Box>
+                            <Typography variant="h6" fontWeight={700} color="#fff">Suspend Vendor?</Typography>
+                            <Typography variant="body2" sx={{ color: '#fde68a', mt: 0.5 }}>
+                                They will lose access until reactivated.
+                            </Typography>
+                        </Box>
+                        <DialogContent sx={{ pt: 2.5 }}>
+                            <Box sx={{ p: 2, bgcolor: '#fffbeb', borderRadius: 2, border: '1px solid #fde68a', mb: 1.5 }}>
+                                <Typography variant="body2" color="#92400e">
+                                    Are you sure you want to suspend{' '}
+                                    <strong>{suspendConfirmVendor.business_name}</strong>{' '}
+                                    (ID: {suspendConfirmVendor.id})? Their account status will change to <strong>suspended</strong>.
+                                </Typography>
+                            </Box>
+                            <Stack spacing={0}>
+                                <ResultRow label="Business Name" value={suspendConfirmVendor.business_name} />
+                                <ResultRow label="Email" value={suspendConfirmVendor.email} />
+                                <ResultRow label="Current Status" value={<Chip label={suspendConfirmVendor.account_status} size="small" color={statusColor(suspendConfirmVendor.account_status)} />} />
+                                <ResultRow label="Hierarchy" value={<Chip label={levelLabel(suspendConfirmVendor.hierachy)} size="small" color={levelColor(suspendConfirmVendor.hierachy)} variant="outlined" />} />
+                            </Stack>
+                        </DialogContent>
+                        <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+                            <Button fullWidth variant="outlined" onClick={closeSuspendConfirm} disabled={suspendingVendor} sx={{ borderRadius: 2, textTransform: 'none' }}>Cancel</Button>
+                            <Button
+                                fullWidth variant="contained"
+                                onClick={confirmSuspendVendor}
+                                disabled={suspendingVendor}
+                                sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, bgcolor: '#d97706', '&:hover': { bgcolor: '#b45309' } }}
+                            >
+                                {suspendingVendor ? <CircularProgress size={18} color="inherit" /> : 'Yes, Suspend Vendor'}
+                            </Button>
+                        </DialogActions>
+                    </Box>
+                )}
+            </Dialog>
+
+            {/* ══════════════════════════════════════════════════════════════════
+                SUSPEND RESULT POPUP — success (backend data) or failure (reason)
+            ══════════════════════════════════════════════════════════════════ */}
+            <Dialog open={Boolean(suspendResultDialog)} onClose={closeSuspendResultDialog} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+                {suspendResultDialog && (
+                    <Box>
+                        <Box sx={{
+                            background: suspendResultDialog.success
+                                ? 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)'
+                                : 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                            px: 3, pt: 4, pb: 3, color: '#fff', textAlign: 'center',
+                        }}>
+                            <Box sx={{
+                                width: 64, height: 64, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.18)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 1.5,
+                                animation: 'popIn 320ms ease',
+                            }}>
+                                {suspendResultDialog.success ? <CheckCircle sx={{ fontSize: 36 }} /> : <ErrorOutline sx={{ fontSize: 36 }} />}
+                            </Box>
+                            <Typography variant="h6" fontWeight={700} color="#fff">
+                                {suspendResultDialog.success ? 'Vendor Suspended' : 'Suspension Failed'}
+                            </Typography>
+                            {suspendResultDialog.success && (
+                                <Typography variant="body2" sx={{ color: '#bbf7d0', mt: 0.5 }}>
+                                    {suspendResultDialog.data.business_name} is now suspended
+                                </Typography>
+                            )}
+                        </Box>
+                        <DialogContent sx={{ pt: 2.5 }}>
+                            {suspendResultDialog.success ? (
+                                <Stack spacing={0}>
+                                    <ResultRow label="Vendor" value={suspendResultDialog.data.business_name} />
+                                    <ResultRow label="Email" value={suspendResultDialog.data.email} />
+                                    <ResultRow label="Vendor ID" value={`#${suspendResultDialog.data.id}`} />
+                                    <ResultRow
+                                        label="Status"
+                                        value={<Chip label={suspendResultDialog.data.account_status} size="small" color={statusColor(suspendResultDialog.data.account_status)} />}
+                                    />
+                                    <ResultRow
+                                        label="Hierarchy"
+                                        value={<Chip label={levelLabel(suspendResultDialog.data.hierachy)} size="small" color={levelColor(suspendResultDialog.data.hierachy)} variant="outlined" />}
+                                    />
+                                    {suspendResultDialog.data.wallet && (
+                                        <ResultRow label="Wallet Balance" value={formatCurrency(suspendResultDialog.data.wallet.balance)} />
+                                    )}
+                                </Stack>
+                            ) : (
+                                <Box sx={{ p: 1.5, bgcolor: '#fef2f2', borderRadius: 2, border: '1px solid #fecaca' }}>
+                                    <Typography variant="body2" color="error.main">
+                                        {suspendResultDialog.message}
+                                    </Typography>
+                                </Box>
+                            )}
+                        </DialogContent>
+                        <DialogActions sx={{ px: 3, pb: 3 }}>
+                            <Button
+                                fullWidth variant="contained"
+                                onClick={closeSuspendResultDialog}
+                                sx={{
+                                    borderRadius: 2, textTransform: 'none', fontWeight: 700,
+                                    bgcolor: suspendResultDialog.success ? '#16a34a' : '#dc2626',
+                                    '&:hover': { bgcolor: suspendResultDialog.success ? '#15803d' : '#b91c1c' },
                                 }}
                             >
                                 Done

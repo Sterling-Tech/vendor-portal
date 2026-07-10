@@ -48,6 +48,28 @@ export interface FundingChildPayload {
     amount: number | string;
 }
 
+/** Payload accepted by PUT /vendor/suspend-child/ */
+export interface SuspendVendorPayload {
+    vendor: number | string;
+}
+
+/** Full vendor record returned by PUT /vendor/suspend-child/ */
+export interface SuspendedVendorResult {
+    id: number;
+    business_name: string;
+    email: string;
+    phone_number: string;
+    account_status: string;
+    hierachy: string;
+    related_vendor?: {
+        id: number; email: string; business_name: string;
+        account_status: string; hierachy: string;
+    } | null;
+    wallet?: { wallet_type?: { name: string; description: string }; balance: string } | null;
+    created_at?: string;
+    [key: string]: any;
+}
+
 /** Vendor summary embedded in a funding-request record */
 export interface FundingRequestVendor {
     id: number;
@@ -156,6 +178,14 @@ export const vendorManagementService = {
     /** Hard-delete a vendor */
     deleteVendor: (vendorId: number) =>
         del<void>(`/vendor/delete/${vendorId}/`),
+
+    /**
+     * Suspend a subordinate vendor.
+     * PUT /vendor/suspend-child/
+     * Payload: { vendor }
+     */
+    suspendVendor: (payload: SuspendVendorPayload) =>
+        put<SuspendedVendorResult>('/vendor/suspend-child/', payload),
 
     // ── kept for backward compat ───────────────────────────────────────────────
     updateVendorConfig: (vendorId: number, payload: VendorConfigPayload) =>
