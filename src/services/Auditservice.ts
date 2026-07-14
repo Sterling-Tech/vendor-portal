@@ -1,11 +1,15 @@
 /**
  * Audit Service
- * All API calls for the Settings → Audit Logs tab (API Logs, Login Logs, Audit Trail).
+ * All API calls for the Settings → Audit Logs tab.
  *
- * NOTE: Endpoint paths below follow the same convention as the rest of the app
- * (/audit/...). If your backend uses different paths, update the three GET
- * calls at the bottom of this file — everything else (types, helpers, the
- * component) stays the same.
+ * Backed by the two real endpoints documented by the API team:
+ *   GET /audit/logs/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD   (start_date & end_date REQUIRED)
+ *   GET /audit/history/user/?user_id=<id>                        (user_id REQUIRED)
+ *
+ * The previous "API Logs" / "Login Logs" panels were built against endpoints
+ * that don't exist on the backend (method/status_code/duration_ms fields
+ * were never real) — they've been removed. Everything below now maps
+ * 1:1 onto the two real responses.
  */
 
 import { get } from './api';
@@ -27,55 +31,44 @@ export const extractAuditError = (err: any): string => {
 };
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
-export interface AuditListParams {
+
+/** Query params for GET /audit/logs/ — start_date & end_date are required by the API */
+export interface AuditLogsParams {
+    start_date: string;
+    end_date: string;
     page?: number;
     page_size?: number;
-    search?: string;
-    start_date?: string;
-    end_date?: string;
 }
 
-/** A single API-call log entry */
-export interface ApiLogEntry {
+/** Query params for GET /audit/history/user/ — user_id is required by the API */
+export interface UserHistoryParams {
+    user_id: string | number;
+}
+
+export interface AuditLogActor {
     id: number;
-    method: string;              // GET / POST / PUT / DELETE
-    endpoint: string;             // e.g. /vendor/request-funding/
-    status_code: number;
-    actor?: string;               // user/vendor who made the call
+    name?: string;
+    email?: string;
+}
+
+/** A single entry returned by GET /audit/logs/ */
+export interface AuditLogEntry {
+    actor: AuditLogActor;
     actor_email?: string;
+    action: string;
+    summary: string;
     ip_address?: string;
-    user_agent?: string;
-    duration_ms?: number;
-    request_body?: any;
-    response_body?: any;
-    created_at: string;
+    timestamp: string;
 }
 
-/** A single login-event entry */
-export interface LoginLogEntry {
+/** A single entry returned by GET /audit/history/user/ */
+export interface UserHistoryEntry {
     id: number;
-    user_email: string;
-    user_name?: string;
-    status: 'success' | 'failed' | string;
-    ip_address?: string;
-    device?: string;
-    location?: string;
-    failure_reason?: string;
-    created_at: string;
-}
-
-/** A single audit-trail entry (create/update/delete of a resource) */
-export interface AuditTrailEntry {
-    id: number;
-    action: string;               // e.g. "created", "updated", "deleted", "approved"
-    resource_type: string;        // e.g. "Vendor", "Group", "Permission"
-    resource_id?: string | number;
-    resource_name?: string;
-    actor?: string;
-    actor_email?: string;
-    changes?: Record<string, { old?: any; new?: any }>;
-    ip_address?: string;
-    created_at: string;
+    object_id: string;
+    action: string;
+    previous: Record<string, any>;
+    present: Record<string, any>;
+    timestamp: string;
 }
 
 export interface PaginatedResult<T> {
@@ -87,18 +80,13 @@ export interface PaginatedResult<T> {
 
 // ─── Service ───────────────────────────────────────────────────────────────────
 export const auditService = {
-    /** GET /audit/api-logs/ — every API call made against the platform */
-    getApiLogs(params?: AuditListParams): Promise<PaginatedResult<ApiLogEntry>> {
-        return get(`/audit/api-logs/${buildQuery(params)}`);
+    /** GET /audit/logs/?start_date=&end_date= — action/summary feed across the platform */
+    getAuditLogs(params: AuditLogsParams): Promise<PaginatedResult<AuditLogEntry>> {
+        return get(`/audit/logs/${buildQuery(params)}`);
     },
 
-    /** GET /audit/login-logs/ — every login attempt (success + failure) */
-    getLoginLogs(params?: AuditListParams): Promise<PaginatedResult<LoginLogEntry>> {
-        return get(`/audit/login-logs/${buildQuery(params)}`);
-    },
-
-    /** GET /audit/trail/ — create/update/delete/approve events across resources */
-    getAuditTrail(params?: AuditListParams): Promise<PaginatedResult<AuditTrailEntry>> {
-        return get(`/audit/trail/${buildQuery(params)}`);
+    /** GET /audit/history/user/?user_id= — field-level before/after history for one user */
+    getUserHistory(params: UserHistoryParams): Promise<UserHistoryEntry[]> {
+        return get(`/audit/history/user/${buildQuery(params)}`);
     },
 };

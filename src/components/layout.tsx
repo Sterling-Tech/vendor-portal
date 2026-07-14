@@ -72,7 +72,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     const dispatch = useAppDispatch();
     const { user } = useAppSelector((state) => state.auth);
     const { tenantId, setTenantId } = useVendorHierarchy();
-    useEnsureUserApiKey(user?.id ?? null);
+    useEnsureUserApiKey(user?.related_vendor?.id ?? null);
 
     const [mobileOpen, setMobileOpen] = useState(false);
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);

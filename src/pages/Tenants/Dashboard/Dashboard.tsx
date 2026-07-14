@@ -102,7 +102,7 @@ const getCurrentVendorId = () => {
     if (typeof window === 'undefined') return '1';
     const direct = localStorage.getItem('vendor_id') || localStorage.getItem('vendorId');
     if (direct) return direct;
-    try { const u = JSON.parse(localStorage.getItem('user') || '{}'); return String(u?.vendor_id || u?.vendor?.id || u?.id || 1); }
+    try { const u = JSON.parse(localStorage.getItem('user') || '{}'); return String(u?.vendor_id || u?.vendor?.id || u?.related_vendor?.id || 1); }
     catch { return '1'; }
 };
 const getCurrentVendorName = () => {
@@ -146,11 +146,11 @@ const buildVendorTree = (vendors: RelatedVendor[]) => {
 
 // ─── Dashboard groups ─────────────────────────────────────────────────────────
 const DASHBOARD_GROUPS: DashboardGroup[] = [
-    { id: 'vendors',     label: 'Vendors',     tableTitle: 'Recent Vendors',     description: 'All vendors in your hierarchy.',          hierarchy: 'vendor',     color: 'primary',   icon: <Business /> },
-    { id: 'sub_vendors', label: 'Sub-vendors', tableTitle: 'Recent Sub-vendors', description: 'Sub-vendors in your hierarchy.',           hierarchy: 'sub_vendor', color: 'success',   icon: <Domain /> },
-    { id: 'agents',      label: 'Agents',      tableTitle: 'Recent Agents',      description: 'Agents under this vendor hierarchy.',      hierarchy: 'agent',      color: 'warning',   icon: <People /> },
-    { id: 'cashiers',    label: 'Cashiers',    tableTitle: 'Recent Cashiers',    description: 'Cashiers under this vendor hierarchy.',    hierarchy: 'cashier',    color: 'info',      icon: <Receipt /> },
-    { id: 'pos',         label: 'POS',         tableTitle: 'Recent POS',         description: 'POS records under this vendor hierarchy.', hierarchy: 'pos',        color: 'secondary', icon: <AccountBalance /> },
+    { id: 'vendors',     label: 'Vendors',     tableTitle: 'Vendors',     description: 'All vendors in your hierarchy.',          hierarchy: 'vendor',     color: 'primary',   icon: <Business /> },
+    { id: 'sub_vendors', label: 'Sub-vendors', tableTitle: 'Sub-vendors', description: 'Sub-vendors in your hierarchy.',           hierarchy: 'sub_vendor', color: 'success',   icon: <Domain /> },
+    { id: 'agents',      label: 'Agents',      tableTitle: 'Agents',      description: 'Agents under this vendor hierarchy.',      hierarchy: 'agent',      color: 'warning',   icon: <People /> },
+    { id: 'cashiers',    label: 'Cashiers',    tableTitle: 'Cashiers',    description: 'Cashiers under this vendor hierarchy.',    hierarchy: 'cashier',    color: 'info',      icon: <Receipt /> },
+    { id: 'pos',         label: 'POS',         tableTitle: 'POS',         description: 'POS records under this vendor hierarchy.', hierarchy: 'pos',        color: 'secondary', icon: <AccountBalance /> },
 ];
 
 const REQUEST_STATUS_OPTIONS: { label: string; value: FundingRequestStatus }[] = [
@@ -502,13 +502,15 @@ const Dashboard: React.FC = () => {
                     <MetricTile
                         title="Wallet Balance"
                         value={walletLoading ? <CircularProgress size={20} /> : formatCurrency(globalWalletBalance)}
-                        detail={walletData?.wallet_type?.name || 'Wallet'}
+                        // detail={walletData?.wallet_type?.name || 'Wallet'}
+                        detail={'Wallet'}
                         icon={<AccountBalance />} color="success"
                     />
                 </Grid>
                 <Grid item xs={12} sm={6} md={4}>
                     <MetricTile title="Active Vendors" value={formatNumber(allVendors.filter(v => v.account_status === 'active').length)}
-                        detail={`${tabCounts.cashiers} cashiers, ${tabCounts.pos} POS`} icon={<People />} color="info" />
+                        // detail={`${tabCounts.cashiers} cashiers, ${tabCounts.pos} POS`} 
+                        icon={<People />} color="info" />
                 </Grid>
             </Grid>
 

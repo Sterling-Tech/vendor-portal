@@ -145,7 +145,7 @@ const TransactionManagement: React.FC = () => {
         if (!startDate || !endDate) return;
         try {
             setLoading(true);
-            const url = `${API_BASE_URL}/transactions/?start_date=${startDate}&end_date=${endDate}&vendor_id=${user?.id}&page=${page + 1}&page_size=${pageSize}`;
+            const url = `${API_BASE_URL}/transactions/?start_date=${startDate}&end_date=${endDate}&vendor_id=${user?.related_vendor?.id}&page=${page + 1}&page_size=${pageSize}`;
             const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
             if (!res.ok) throw new Error('Transaction API failed');
             const data = await res.json();
@@ -162,14 +162,14 @@ const TransactionManagement: React.FC = () => {
             setTransactions(mapped);
         } catch (err) { console.error('Transaction fetch error:', err); }
         finally { setLoading(false); }
-    }, [startDate, endDate, user?.id]);
+    }, [startDate, endDate, user?.related_vendor?.id]);
 
     // ── Fetch ledger (server-side paginated) — GET /vendor/ledger/ ───────────────
     const fetchLedger = useCallback(async (page: number, pageSize: number) => {
         if (!startDate || !endDate) return;
         try {
             setLoading(true);
-            const url = `${API_BASE_URL}/ledger/?start_date=${startDate}&end_date=${endDate}&vendor_id=${user?.id}&page=${page + 1}&page_size=${pageSize}`;
+            const url = `${API_BASE_URL}/ledger/?start_date=${startDate}&end_date=${endDate}&vendor_id=${user?.related_vendor?.id}&page=${page + 1}&page_size=${pageSize}`;
             const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
             if (!res.ok) throw new Error('Ledger API failed');
             const data = await res.json();
@@ -188,14 +188,14 @@ const TransactionManagement: React.FC = () => {
             setLastUpdated(new Date());
         } catch (err) { console.error('Ledger fetch error:', err); }
         finally { setLoading(false); }
-    }, [startDate, endDate, user?.id]);
+    }, [startDate, endDate, user?.related_vendor?.id]);
 
     // ── Fetch ALL ledger pages for the report (loops through pagination) ─────────
     const fetchAllLedgerForReport = async (params: typeof reportForm): Promise<LedgerEntry[]> => {
         const allResults: LedgerEntry[] = [];
         let page = 1; let hasNext = true;
         while (hasNext) {
-            const url = `${API_BASE_URL}/ledger/?start_date=${params.start_date}&end_date=${params.end_date}&vendor_id=${user?.id}&page=${page}&page_size=200`;
+            const url = `${API_BASE_URL}/ledger/?start_date=${params.start_date}&end_date=${params.end_date}&vendor_id=${user?.related_vendor?.id}&page=${page}&page_size=200`;
             const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
             if (!res.ok) throw new Error(`Ledger API failed (page ${page})`);
             const data = await res.json();
@@ -222,7 +222,7 @@ const TransactionManagement: React.FC = () => {
         const map: Record<string, string> = {};
         let page = 1; let hasNext = true;
         while (hasNext) {
-            const url = `${API_BASE_URL}/transactions/?start_date=${params.start_date}&end_date=${params.end_date}&vendor_id=${user?.id}&page=${page}&page_size=200`;
+            const url = `${API_BASE_URL}/transactions/?start_date=${params.start_date}&end_date=${params.end_date}&vendor_id=${user?.related_vendor?.id}&page=${page}&page_size=200`;
             const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
             if (!res.ok) break;
             const data = await res.json();
@@ -241,7 +241,7 @@ const TransactionManagement: React.FC = () => {
         fetchTransactions(0, transactionRowsPerPage);
         fetchLedger(0, ledgerRowsPerPage);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [startDate, endDate, user?.id]);
+    }, [startDate, endDate, user?.related_vendor?.id]);
 
     const handleTransactionPageChange = (_: unknown, p: number) => { setTransactionPage(p); fetchTransactions(p, transactionRowsPerPage); };
     const handleTransactionRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => { const n = Number(e.target.value); setTransactionRowsPerPage(n); setTransactionPage(0); fetchTransactions(0, n); };
