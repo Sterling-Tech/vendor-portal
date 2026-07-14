@@ -476,7 +476,7 @@ const AuditLogs: React.FC = () => {
                 Platform-wide activity by date range, and field-level change history for a specific user.
             </Typography>
 
-            <Box sx={{ borderBottom: '1px solid #e2e8f0', mb: 3 }}>
+            {/* <Box sx={{ borderBottom: '1px solid #e2e8f0', mb: 3 }}>
                 <Tabs
                     value={innerTab}
                     onChange={(_, v) => setInnerTab(v)}
@@ -495,7 +495,7 @@ const AuditLogs: React.FC = () => {
                     <Tab icon={<History sx={{ fontSize: 18 }} />} iconPosition="start" label="Audit Logs" />
                     <Tab icon={<PersonSearch sx={{ fontSize: 18 }} />} iconPosition="start" label="User History" />
                 </Tabs>
-            </Box>
+            </Box> */}
 
             <Fade in key={innerTab} timeout={280}>
                 <Box>
