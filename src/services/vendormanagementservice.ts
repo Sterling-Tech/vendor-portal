@@ -117,6 +117,16 @@ export interface CreateVendorPayload {
     [key: string]: any;
 }
 
+/** A single entry returned by GET /audit/history/vendor/?vendor_id= */
+export interface VendorHistoryEntry {
+    id: number;
+    object_id: string;
+    action: string;
+    previous: Record<string, any> | null;
+    present: Record<string, any> | null;
+    timestamp: string;
+}
+
 // ─── Service ───────────────────────────────────────────────────────────────────
 export const vendorManagementService = {
     /** All related child vendors with optional filters */
@@ -186,6 +196,15 @@ export const vendorManagementService = {
      */
     suspendVendor: (payload: SuspendVendorPayload) =>
         put<SuspendedVendorResult>('/vendor/suspend-child/', payload),
+
+    /**
+     * Retrieve the full change history for one vendor.
+     * GET /audit/history/vendor/?vendor_id={id}
+     * `vendor_id` is REQUIRED by the backend. Returns an array (not paginated)
+     * of CREATE/UPDATE entries with `previous` / `present` snapshots.
+     */
+    getVendorHistory: (vendorId: number | string) =>
+        get<VendorHistoryEntry[]>(`/audit/history/vendor/${buildQuery({ vendor_id: vendorId })}`),
 
     // ── kept for backward compat ───────────────────────────────────────────────
     updateVendorConfig: (vendorId: number, payload: VendorConfigPayload) =>

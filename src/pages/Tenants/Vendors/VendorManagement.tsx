@@ -12,7 +12,8 @@ import {
     CheckCircle, ChevronRight, Close, Domain, Download, People, Receipt,
     Refresh, Search, Delete, NavigateNext, Settings, TrendingDown, Person,
     AccountBalanceWallet, ErrorOutline, ListAlt, ContentCopy, History,
-    WarningAmber, PauseCircleOutline,
+    WarningAmber, PauseCircleOutline, Timeline, AddCircle, DeleteForever,
+    Update, Edit, FilterList,
 } from '@mui/icons-material';
 import { useAppSelector } from '../../../store/hooks';
 import {
@@ -21,6 +22,7 @@ import {
     VendorConfigPayload,
     FundingRequest,
     SuspendedVendorResult,
+    VendorHistoryEntry,
 } from './../../../services/vendormanagementservice';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -135,6 +137,50 @@ const inputSx = {
         '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#1e3a8a' },
     },
     '& .MuiOutlinedInput-input': { bgcolor: 'transparent' },
+};
+
+// ─── Vendor History helpers ────────────────────────────────────────────────────
+/** Fields we never surface in a history diff, even if they technically changed */
+const HISTORY_SENSITIVE_FIELDS = new Set(['password', 'token']);
+/** Fields that are noisy/redundant in a diff view (still fine elsewhere) */
+const HISTORY_SKIPPED_FIELDS = new Set(['last_updated']);
+
+const historyActionIcon = (action?: string) => {
+    const a = (action || '').toLowerCase();
+    if (a === 'create') return <AddCircle sx={{ fontSize: 16 }} />;
+    if (a === 'delete') return <DeleteForever sx={{ fontSize: 16 }} />;
+    if (a === 'update') return <Update sx={{ fontSize: 16 }} />;
+    return <Edit sx={{ fontSize: 16 }} />;
+};
+const historyActionColor = (action?: string): MuiColor => {
+    const a = (action || '').toLowerCase();
+    if (a === 'create') return 'success';
+    if (a === 'delete') return 'error';
+    if (a === 'update') return 'warning';
+    return 'primary';
+};
+const historyFormatValue = (v: any): string => {
+    if (v === null || v === undefined || v === '') return '—';
+    if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+};
+/** Diff two vendor snapshots, skipping sensitive/noisy fields. `previous` may be null (CREATE events). */
+const computeVendorHistoryChanges = (previous: Record<string, any> | null, present: Record<string, any> | null) => {
+    const changes: { field: string; oldVal: any; newVal: any }[] = [];
+    const keys = new Set([...Object.keys(previous || {}), ...Object.keys(present || {})]);
+    keys.forEach((key) => {
+        if (HISTORY_SENSITIVE_FIELDS.has(key) || HISTORY_SKIPPED_FIELDS.has(key)) return;
+        const oldVal = previous ? previous[key] : undefined;
+        const newVal = present ? present[key] : undefined;
+        if (previous === null) {
+            // CREATE event — only list fields that actually have a value
+            if (newVal !== null && newVal !== undefined && newVal !== '') changes.push({ field: key, oldVal: undefined, newVal });
+            return;
+        }
+        if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) changes.push({ field: key, oldVal, newVal });
+    });
+    return changes;
 };
 
 const StatCard = ({ title, value, icon, color = 'primary', subtitle }: { title: string; value: React.ReactNode; icon: React.ReactNode; color?: MuiColor; subtitle?: string }) => (
@@ -279,6 +325,17 @@ const VendorManagement: React.FC = () => {
     const [fundingRequestsError, setFundingRequestsError] = useState<string | null>(null);
     const [fundingRequestPage, setFundingRequestPage] = useState(0);
     const [fundingRequestRowsPerPage, setFundingRequestRowsPerPage] = useState(8);
+
+    // ── Vendor History dialog — GET /audit/history/vendor/?vendor_id= ────────
+    const [historyVendor, setHistoryVendor] = useState<RelatedVendor | null>(null);
+    const [vendorHistory, setVendorHistory] = useState<VendorHistoryEntry[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [historyError, setHistoryError] = useState<string | null>(null);
+    const [historySearch, setHistorySearch] = useState('');
+    const [historyActionFilter, setHistoryActionFilter] = useState<'all' | 'create' | 'update' | 'delete'>('all');
+    const [historyPage, setHistoryPage] = useState(0);
+    const [historyRowsPerPage, setHistoryRowsPerPage] = useState(10);
+    const [historyExpandedIds, setHistoryExpandedIds] = useState<Set<number>>(new Set());
 
     // ── Delete confirmation ───────────────────────────────────────────────────
     const [deleteConfirmVendor, setDeleteConfirmVendor] = useState<RelatedVendor | null>(null);
@@ -465,6 +522,34 @@ const VendorManagement: React.FC = () => {
         }
     };
 
+    // ── Vendor History handlers ───────────────────────────────────────────────
+    const fetchVendorHistory = useCallback(async (vendorId: number) => {
+        setHistoryLoading(true); setHistoryError(null);
+        try {
+            const res = await vendorManagementService.getVendorHistory(vendorId);
+            const sorted = [...(Array.isArray(res) ? res : [])].sort(
+                (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            );
+            setVendorHistory(sorted);
+        } catch (err: any) {
+            setHistoryError(extractBackendError(err));
+            setVendorHistory([]);
+        } finally {
+            setHistoryLoading(false);
+        }
+    }, []);
+
+    const openHistory = (vendor: RelatedVendor) => {
+        setHistoryVendor(vendor);
+        setHistorySearch(''); setHistoryActionFilter('all'); setHistoryPage(0);
+        setHistoryExpandedIds(new Set());
+        fetchVendorHistory(vendor.id);
+    };
+    const closeHistory = () => { setHistoryVendor(null); setVendorHistory([]); setHistoryError(null); };
+    const toggleHistoryExpanded = (id: number) => {
+        setHistoryExpandedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    };
+
     // ─────────────────────────────────────────────────────────────────────────
     // FETCHES
     // ─────────────────────────────────────────────────────────────────────────
@@ -606,6 +691,43 @@ const VendorManagement: React.FC = () => {
         const approved = fundingRequests.filter(r => ['approved', 'success', 'successful', 'completed'].includes((r.status || '').toLowerCase())).length;
         return { totalAmount, pending, approved };
     }, [fundingRequests]);
+
+    // ── Vendor History derived data ──────────────────────────────────────────
+    const historyChangesByEntry = useMemo(() => {
+        const map = new Map<number, { field: string; oldVal: any; newVal: any }[]>();
+        vendorHistory.forEach(h => map.set(h.id, computeVendorHistoryChanges(h.previous, h.present)));
+        return map;
+    }, [vendorHistory]);
+
+    const filteredVendorHistory = useMemo(() => {
+        const term = historySearch.trim().toLowerCase();
+        return vendorHistory.filter(h => {
+            const action = (h.action || '').toLowerCase();
+            const matchesFilter = historyActionFilter === 'all' || action === historyActionFilter;
+            if (!term) return matchesFilter;
+            const changes = historyChangesByEntry.get(h.id) || [];
+            const matchesTerm =
+                action.includes(term) ||
+                changes.some(c =>
+                    c.field.toLowerCase().includes(term) ||
+                    historyFormatValue(c.newVal).toLowerCase().includes(term) ||
+                    historyFormatValue(c.oldVal).toLowerCase().includes(term)
+                );
+            return matchesFilter && matchesTerm;
+        });
+    }, [vendorHistory, historySearch, historyActionFilter, historyChangesByEntry]);
+
+    const paginatedVendorHistory = useMemo(
+        () => filteredVendorHistory.slice(historyPage * historyRowsPerPage, historyPage * historyRowsPerPage + historyRowsPerPage),
+        [filteredVendorHistory, historyPage, historyRowsPerPage]
+    );
+
+    const historyStats = useMemo(() => {
+        const created = vendorHistory.filter(h => (h.action || '').toLowerCase() === 'create').length;
+        const updated = vendorHistory.filter(h => (h.action || '').toLowerCase() === 'update').length;
+        const mostRecent = vendorHistory[0]?.timestamp;
+        return { total: vendorHistory.length, created, updated, mostRecent: mostRecent ? formatDateTime(mostRecent) : '—' };
+    }, [vendorHistory]);
 
     const resetFilters = () => { setSearchTerm(''); setLevelFilter('all'); setStatusFilter('all'); setStartDate(''); setEndDate(''); setPage(0); setStatFilter(null); };
     const toggleExpanded = (id: number) => { setExpandedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
@@ -931,6 +1053,7 @@ const VendorManagement: React.FC = () => {
                         <Box><Typography variant="h6">Selected Vendor Details</Typography><Typography variant="body2" color="text.secondary">{selectedVendor.business_name}</Typography></Box>
                         <Stack direction="row" spacing={1}>
                             <Button variant="outlined" startIcon={<Settings />} onClick={() => openConfig(selectedVendor)}>Configuration</Button>
+                            <Button variant="outlined" startIcon={<Timeline />} onClick={() => openHistory(selectedVendor)}>History</Button>
                             <Button variant="outlined" startIcon={<ArrowBack />} onClick={() => setSelectedVendor(null)}>Back</Button>
                         </Stack>
                     </Stack>
@@ -1696,6 +1819,150 @@ const VendorManagement: React.FC = () => {
                         </DialogActions>
                     </Box>
                 )}
+            </Dialog>
+
+            {/* ══════════════════════════════════════════════════════════════════
+                VENDOR HISTORY DIALOG — GET /audit/history/vendor/?vendor_id=
+            ══════════════════════════════════════════════════════════════════ */}
+            <Dialog open={Boolean(historyVendor)} onClose={closeHistory} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+                <Box sx={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', px: 3, pt: 3, pb: 2.5, color: '#fff' }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                        <Box>
+                            <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
+                                <Timeline sx={{ fontSize: 22 }} />
+                                <Typography variant="h6" fontWeight={700} color="#fff">Vendor History</Typography>
+                            </Stack>
+                            <Typography variant="body2" sx={{ color: '#93c5fd' }}>
+                                {historyVendor?.business_name} · ID {historyVendor?.id} · every recorded change to this vendor
+                            </Typography>
+                        </Box>
+                        <IconButton onClick={closeHistory} size="small" sx={{ color: '#93c5fd', '&:hover': { color: '#fff' } }}><Close fontSize="small" /></IconButton>
+                    </Stack>
+                </Box>
+                <DialogContent sx={{ p: 3 }}>
+                    {historyError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setHistoryError(null)}>{historyError}</Alert>}
+
+                    <Grid container spacing={2} mb={3}>
+                        <Grid item xs={6} sm={3}><StatCard title="Total Events" value={historyLoading ? '—' : formatNumber(historyStats.total)} icon={<Timeline />} color="primary" /></Grid>
+                        <Grid item xs={6} sm={3}><StatCard title="Created" value={historyLoading ? '—' : formatNumber(historyStats.created)} icon={<AddCircle />} color="success" /></Grid>
+                        <Grid item xs={6} sm={3}><StatCard title="Updated" value={historyLoading ? '—' : formatNumber(historyStats.updated)} icon={<Update />} color="warning" /></Grid>
+                        <Grid item xs={6} sm={3}><StatCard title="Most Recent" value={historyLoading ? '—' : historyStats.mostRecent} icon={<Receipt />} color="info" /></Grid>
+                    </Grid>
+
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2.5 }}>
+                        <Grid container spacing={1.5} alignItems="center">
+                            <Grid item xs={12} md={7}>
+                                <TextField
+                                    fullWidth size="small" placeholder="Search by field name, value, or action…"
+                                    value={historySearch} onChange={e => { setHistorySearch(e.target.value); setHistoryPage(0); }}
+                                    sx={inputSx}
+                                    InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" sx={{ color: '#94a3b8' }} /></InputAdornment> }}
+                                />
+                            </Grid>
+                            <Grid item xs={12} md={5}>
+                                <FormControl fullWidth size="small" sx={inputSx}>
+                                    <InputLabel>Action Type</InputLabel>
+                                    <Select
+                                        label="Action Type" value={historyActionFilter}
+                                        onChange={e => { setHistoryActionFilter(e.target.value as any); setHistoryPage(0); }}
+                                        startAdornment={<InputAdornment position="start"><FilterList fontSize="small" sx={{ color: '#94a3b8' }} /></InputAdornment>}
+                                    >
+                                        <MenuItem value="all">All Actions</MenuItem>
+                                        <MenuItem value="create">Created</MenuItem>
+                                        <MenuItem value="update">Updated</MenuItem>
+                                        <MenuItem value="delete">Deleted</MenuItem>
+                                    </Select>
+                                </FormControl>
+                            </Grid>
+                        </Grid>
+                    </Paper>
+
+                    <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, py: 1.5, borderBottom: '1px solid #f1f5f9', bgcolor: '#f8faff' }}>
+                            <Typography variant="subtitle2" fontWeight={700}>Change Log</Typography>
+                            <IconButton size="small" onClick={() => historyVendor && fetchVendorHistory(historyVendor.id)} disabled={historyLoading}>
+                                {historyLoading ? <CircularProgress size={16} /> : <Refresh fontSize="small" />}
+                            </IconButton>
+                        </Stack>
+                        <Box sx={{ maxHeight: 480, overflowY: 'auto' }}>
+                            {historyLoading && !filteredVendorHistory.length ? (
+                                <Box sx={{ py: 6, textAlign: 'center' }}><CircularProgress size={28} /></Box>
+                            ) : filteredVendorHistory.length === 0 ? (
+                                <Box sx={{ py: 6, textAlign: 'center' }}>
+                                    <Timeline sx={{ fontSize: 40, color: '#cbd5e1' }} />
+                                    <Typography color="text.secondary" fontWeight={600} mt={1}>No history events found</Typography>
+                                </Box>
+                            ) : paginatedVendorHistory.map((entry, idx) => {
+                                const changes = historyChangesByEntry.get(entry.id) || [];
+                                const isExpanded = historyExpandedIds.has(entry.id);
+                                const isCreate = (entry.action || '').toLowerCase() === 'create';
+                                return (
+                                    <Box key={entry.id}>
+                                        <Box
+                                            onClick={() => toggleHistoryExpanded(entry.id)}
+                                            sx={{
+                                                display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.4,
+                                                borderBottom: idx === paginatedVendorHistory.length - 1 && !isExpanded ? 'none' : '1px solid #f1f5f9',
+                                                cursor: 'pointer', transition: 'background 0.15s',
+                                                '&:hover': { bgcolor: '#f0f7ff' },
+                                            }}
+                                        >
+                                            <Avatar sx={{ width: 34, height: 34, bgcolor: `${historyActionColor(entry.action)}.light`, color: `${historyActionColor(entry.action)}.main` }}>
+                                                {historyActionIcon(entry.action)}
+                                            </Avatar>
+                                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                                                <Typography variant="body2" fontWeight={700} sx={{ textTransform: 'capitalize' }}>
+                                                    {isCreate ? 'Vendor Created' : `${(entry.action || 'Updated').toLowerCase()}d`}
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    {changes.length} field{changes.length === 1 ? '' : 's'} {isCreate ? 'set' : 'changed'}
+                                                </Typography>
+                                            </Box>
+                                            <Chip label={entry.action} size="small" color={historyActionColor(entry.action)} variant="outlined" sx={{ fontWeight: 700, textTransform: 'capitalize' }} />
+                                            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 130, textAlign: 'right' }}>{formatDateTime(entry.timestamp)}</Typography>
+                                            <ChevronRight sx={{ fontSize: 18, color: '#94a3b8', transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+                                        </Box>
+                                        <Collapse in={isExpanded} timeout={220}>
+                                            <Box sx={{ px: 2, pb: 2, pt: 0.5, bgcolor: '#fafbfe', borderBottom: idx === paginatedVendorHistory.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                                                {changes.length === 0 ? (
+                                                    <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>No visible field changes for this event.</Typography>
+                                                ) : (
+                                                    <Grid container spacing={1} sx={{ pt: 1 }}>
+                                                        {changes.map(({ field, oldVal, newVal }) => (
+                                                            <Grid item xs={12} sm={6} key={field}>
+                                                                <Box sx={{ p: 1.25, bgcolor: '#fff', borderRadius: 2, border: '1px solid #e2e8f0' }}>
+                                                                    <Typography variant="caption" fontWeight={700} color="primary.main">{field}</Typography>
+                                                                    {isCreate ? (
+                                                                        <Typography variant="body2" fontWeight={600} sx={{ mt: 0.25, wordBreak: 'break-all' }}>{historyFormatValue(newVal)}</Typography>
+                                                                    ) : (
+                                                                        <Stack direction="row" spacing={0.75} alignItems="center" mt={0.5} flexWrap="wrap">
+                                                                            <Chip label={historyFormatValue(oldVal)} size="small" sx={{ bgcolor: '#fef2f2', color: '#dc2626', textDecoration: 'line-through', maxWidth: 180 }} />
+                                                                            <Typography variant="caption">→</Typography>
+                                                                            <Chip label={historyFormatValue(newVal)} size="small" sx={{ bgcolor: '#f0fdf4', color: '#16a34a', fontWeight: 700, maxWidth: 180 }} />
+                                                                        </Stack>
+                                                                    )}
+                                                                </Box>
+                                                            </Grid>
+                                                        ))}
+                                                    </Grid>
+                                                )}
+                                            </Box>
+                                        </Collapse>
+                                    </Box>
+                                );
+                            })}
+                        </Box>
+                        <TablePagination
+                            component="div" count={filteredVendorHistory.length} page={historyPage}
+                            onPageChange={(_, p) => setHistoryPage(p)} rowsPerPage={historyRowsPerPage}
+                            onRowsPerPageChange={e => { setHistoryRowsPerPage(Number(e.target.value)); setHistoryPage(0); }}
+                            rowsPerPageOptions={[10, 20, 50]}
+                        />
+                    </Paper>
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 3 }}>
+                    <Button variant="outlined" onClick={closeHistory} sx={{ borderRadius: 2, textTransform: 'none' }}>Close</Button>
+                </DialogActions>
             </Dialog>
         </Box>
     );
