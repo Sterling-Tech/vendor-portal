@@ -1052,17 +1052,17 @@ const VendorManagement: React.FC = () => {
                     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} spacing={2} mb={2}>
                         <Box><Typography variant="h6">Selected Vendor Details</Typography><Typography variant="body2" color="text.secondary">{selectedVendor.business_name}</Typography></Box>
                         <Stack direction="row" spacing={1}>
-                            <Button variant="outlined" startIcon={<Settings />} onClick={() => openConfig(selectedVendor)}>Configuration</Button>
+                            {/* <Button variant="outlined" startIcon={<Settings />} onClick={() => openConfig(selectedVendor)}>Configuration</Button> */}
                             <Button variant="outlined" startIcon={<Timeline />} onClick={() => openHistory(selectedVendor)}>History</Button>
                             <Button variant="outlined" startIcon={<ArrowBack />} onClick={() => setSelectedVendor(null)}>Back</Button>
                         </Stack>
                     </Stack>
-                    <Grid container spacing={2} mb={3}>
+                    {/* <Grid container spacing={2} mb={3}>
                         <Grid item xs={12} md={3}><StatCard title="Wallet Balance" value={formatCurrency(getWalletBalance(selectedVendor))} icon={<AccountBalance />} color="success" /></Grid>
                         <Grid item xs={12} md={3}><StatCard title="Transactions" value={formatNumber(selectedTransactionCount)} icon={<Receipt />} color="warning" /></Grid>
                         <Grid item xs={12} md={3}><StatCard title="Total Subordinates" value={formatNumber(selectedDirectChildrenCount)} icon={<Business />} color="primary" /></Grid>
                         <Grid item xs={12} md={3}><StatCard title="Status" value={selectedVendor.account_status} icon={<CheckCircle />} color="info" /></Grid>
-                    </Grid>
+                    </Grid> */}
                     <Grid container spacing={3}>
                         <Grid item xs={12} md={7}>
                             <Stack spacing={3}>
@@ -1127,8 +1127,7 @@ const VendorManagement: React.FC = () => {
                                         </Collapse>
                                     </CardContent>
                                 </Card>
-
-                                <Card sx={{ borderRadius: 2 }}>
+                                {/* <Card sx={{ borderRadius: 2 }}>
                                     <CardContent>
                                         <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
                                             <Typography variant="h6">Transactions</Typography>
@@ -1157,7 +1156,7 @@ const VendorManagement: React.FC = () => {
                                             <TablePagination component="div" count={selectedTransactionCount} page={transactionPage} onPageChange={(_, p) => setTransactionPage(p)} rowsPerPage={transactionRowsPerPage} onRowsPerPageChange={e => { setTransactionRowsPerPage(Number(e.target.value)); setTransactionPage(0); }} rowsPerPageOptions={[5, 10, 20]} />
                                         </Box>
                                     </CardContent>
-                                </Card>
+                                </Card> */}
                             </Stack>
                         </Grid>
                         <Grid item xs={12} md={5}>

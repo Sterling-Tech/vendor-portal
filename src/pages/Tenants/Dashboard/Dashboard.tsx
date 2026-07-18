@@ -600,7 +600,7 @@ const Dashboard: React.FC = () => {
                                 <Typography variant="body2" color="text.secondary">{selectedVendor.business_name}</Typography>
                             </Box>
                             <Button variant="outlined" startIcon={<ArrowBack />} onClick={() => setSelectedVendor(null)}>
-                                Back to {currentGroup.tableTitle}
+                                Back
                             </Button>
                         </Stack>
                         <Card sx={{ borderRadius: 1 }}>
@@ -617,7 +617,7 @@ const Dashboard: React.FC = () => {
                                     </Stack>
                                 </Stack>
                                 {/* ── Detail metric cards: Wallet Balance, Total Credit, Total Debit, Total Children ── */}
-                                <Grid container spacing={2} mb={2}>
+                                {/* <Grid container spacing={2} mb={2}>
                                     <Grid item xs={12} sm={6} md={3}>
                                         <MetricTile title="Wallet Balance" value={formatCurrency(selectedWalletBalance)} detail={getWalletType(selectedVendor)} icon={<AccountBalance />} color="success" />
                                     </Grid>
@@ -630,7 +630,7 @@ const Dashboard: React.FC = () => {
                                     <Grid item xs={12} sm={6} md={3}>
                                         <MetricTile title="Total Children" value={formatNumber(selectedChildrenCount)} detail="Under selected vendor" icon={<People />} color="info" />
                                     </Grid>
-                                </Grid>
+                                </Grid> */}
                                 <Grid container spacing={2}>
                                     <Grid item xs={12} md={7}>
                                         <Stack spacing={2}>
@@ -654,7 +654,7 @@ const Dashboard: React.FC = () => {
                                                     </Grid>
                                                 </Collapse>
                                             </Paper>
-                                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
+                                            {/* <Paper variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
                                                 <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
                                                     <Typography variant="subtitle1" fontWeight={700}>Recent Transactions</Typography>
                                                     {transactionsLoading && <CircularProgress size={20} />}
@@ -674,7 +674,7 @@ const Dashboard: React.FC = () => {
                                                         </TableBody>
                                                     </Table>
                                                 </Box>
-                                            </Paper>
+                                            </Paper> */}
                                         </Stack>
                                     </Grid>
                                     <Grid item xs={12} md={5}>

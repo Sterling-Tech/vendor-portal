@@ -25,6 +25,7 @@ type Transaction = {
     id: string;
     reference: string;
     status: TransactionStatus;
+    case: string;
     account_no: string;
     direction: TransactionDirection;
     value: number;
@@ -154,6 +155,7 @@ const TransactionManagement: React.FC = () => {
                 id: item.transaction_ref,
                 reference: item.transaction_ref,
                 status: item.status || 'success',
+                case: item.case || 'N/A',
                 account_no: item.account_no ?? '',
                 direction: Number(item.amount) >= 0 ? 'credit' : 'debit',
                 value: Math.abs(Number(item.amount || 0)),
@@ -497,7 +499,7 @@ const TransactionManagement: React.FC = () => {
                         </Grid>
                         {tabValue === 0 ? (
                             <>
-                                <Grid item xs={12} md={2}>
+                                {/* <Grid item xs={12} md={2}>
                                     <FormControl fullWidth size="small" sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
                                         <InputLabel>Status</InputLabel>
                                         <Select value={statusFilter} label="Status" onChange={(e) => handleFilterChange(() => setStatusFilter(e.target.value as any))}>
@@ -507,7 +509,7 @@ const TransactionManagement: React.FC = () => {
                                             <MenuItem value="failed">Failed</MenuItem>
                                         </Select>
                                     </FormControl>
-                                </Grid>
+                                </Grid> */}
                                 <Grid item xs={12} md={2}>
                                     <FormControl fullWidth size="small" sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
                                         <InputLabel>Type</InputLabel>
@@ -577,9 +579,9 @@ const TransactionManagement: React.FC = () => {
                                         <TableCell>Date / Time</TableCell>
                                         <TableCell>Reference</TableCell>
                                         <TableCell>Account No.</TableCell>
-                                        <TableCell>Status</TableCell>
+                                        {/* <TableCell>Status</TableCell> */}
                                         <TableCell>Type</TableCell>
-                                        <TableCell align="right">Credit</TableCell>
+                                        <TableCell align="right">Amount</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -589,11 +591,11 @@ const TransactionManagement: React.FC = () => {
                                         <TableRow key={tx.id} hover sx={{ '&:hover': { bgcolor: '#f8faff' } }}>
                                             <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDateTime(tx.created_at)}</TableCell>
                                             <TableCell><Typography variant="body2" fontFamily="monospace" fontSize={12}>{tx.reference}</Typography></TableCell>
-                                            <TableCell><Typography variant="body2" color="text.secondary">{tx.account_no || '—'}</Typography></TableCell>
-                                            <TableCell><Chip label={tx.status} size="small" color={statusColor(tx.status)} sx={{ fontWeight: 600, textTransform: 'capitalize' }} /></TableCell>
-                                            <TableCell><Chip label={tx.direction} size="small" color={directionColor(tx.direction)} variant="outlined" sx={{ fontWeight: 600, textTransform: 'capitalize' }} /></TableCell>
+                                            <TableCell><Typography variant="body2" color="text.secondary">{tx.account_no || 'N/A'}</Typography></TableCell>
+                                            {/* <TableCell><Chip label={tx.status} size="small" color={statusColor(tx.status)} sx={{ fontWeight: 600, textTransform: 'capitalize' }} /></TableCell> */}
+                                            <TableCell><Chip label={tx.case} size="small" color={directionColor(tx.case)} variant="outlined" sx={{ fontWeight: 600, textTransform: 'capitalize' }} /></TableCell>
                                             <TableCell align="right">
-                                                {tx.direction === 'credit' ? (
+                                                {tx.case === 'credit' ? (
                                                     <Typography fontWeight={700} color="success.main">+{formatCurrency(tx.value)}</Typography>
                                                 ) : <Typography color="text.disabled">—</Typography>}
                                             </TableCell>

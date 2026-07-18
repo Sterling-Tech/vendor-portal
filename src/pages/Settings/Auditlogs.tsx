@@ -172,7 +172,7 @@ const AuditLogsPanel: React.FC = () => {
         <Box>
             <Grid container spacing={2} mb={2.5}>
                 <Grid item xs={4}><MiniStat label="Total Events" value={stats.total} icon={<History />} color="primary" loading={loading} /></Grid>
-                <Grid item xs={4}><MiniStat label="Unique Actors" value={stats.actors} icon={<Groups />} color="info" loading={loading} /></Grid>
+                {/* <Grid item xs={4}><MiniStat label="Unique Actors" value={stats.actors} icon={<Groups />} color="info" loading={loading} /></Grid> */}
                 <Grid item xs={4}><MiniStat label="Most Recent" value={stats.mostRecent} icon={<EventNote />} color="success" loading={loading} /></Grid>
             </Grid>
 
