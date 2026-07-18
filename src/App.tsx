@@ -20,6 +20,7 @@ import AgentConsole from './pages/Agents/AgentConsole';
 import PrepaidServices from './pages/Prepaid/PrepaidServices';
 import GroupManagement from './pages/Roles/Roles';
 import OtpVerify from './pages/Auth/Otp';
+import Historys from './pages/Tenants/History';
 
 // Enhanced theme
 const theme = createTheme({
@@ -196,6 +197,16 @@ const App: React.FC = () => {
                                     <ProtectedRoute>
                                         <Layout>
                                             <Analytics />
+                                        </Layout>
+                                    </ProtectedRoute>
+                                }
+                            />
+                            <Route
+                                path="/history"
+                                element={
+                                    <ProtectedRoute>
+                                        <Layout>
+                                            <Historys />
                                         </Layout>
                                     </ProtectedRoute>
                                 }
