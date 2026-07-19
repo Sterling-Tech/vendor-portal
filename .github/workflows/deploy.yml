@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - test
+      - test-v2
       - bedc
       - aple
 
@@ -12,14 +13,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to Server
-        uses: appleboy/ssh-action@v1.0.0
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # ROUTE 1: Deploys only when pushing to test-v2
+      - name: Deploy V2 to Server
+        if: github.ref_name == 'test-v2'
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          host: 188.166.161.13
-          username: root
-          key: ${{ secrets.SERVER_SSH_KEY }}
+          host: ${{ secrets.SERVER_HOST }} # server 188 / 13
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            cd /var/www/quickcash-full/frontend/production/v2/vendor-portal
+            git fetch origin
+            git checkout test-v2
+            git pull origin test-v2
+            npm install
+            npm run build
+            systemctl restart nginx
+            pm2 reload vendor-portal
+
+      # ROUTE 2: Deploys when pushing to test, bedc, or aple
+      - name: Deploy Standard Branches to Server
+        if: github.ref_name != 'test-v2'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }} # server 188 / 13
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
           script: |
             cd /var/www/quickcash-full/frontend/production/vendor-portal
+            git fetch origin
+            git checkout ${{ github.ref_name }}
             git pull origin ${{ github.ref_name }}
             npm install
             npm run build
