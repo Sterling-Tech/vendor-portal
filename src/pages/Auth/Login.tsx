@@ -39,7 +39,7 @@ const Login: React.FC = () => {
         setIsLoading(true);
 
         try {
-            const response = await fetch('http://188.166.161.13:8061/user/login/', {
+            const response = await fetch('http://188.166.161.13:8065/user/login/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(formData),
@@ -100,7 +100,7 @@ const Login: React.FC = () => {
                             <LoginIcon sx={{ fontSize: 32, color: '#fff' }} />
                         </Box>
                         <Typography variant="h4" fontWeight={800} gutterBottom>QuickCash Vendor Portal</Typography>
-                        <Typography variant="body2" color="text.secondary">Sign in to access your vendor dashboard</Typography>
+                        <Typography variant="body2" color="text.secondary">Sign in to access your vendor dashboard.</Typography>
                     </Box>
 
                     {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{error}</Alert>}

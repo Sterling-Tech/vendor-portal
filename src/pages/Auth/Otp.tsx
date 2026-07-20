@@ -53,7 +53,7 @@ const OtpVerify: React.FC = () => {
         setIsLoading(true);
 
         try {
-            const response = await fetch('http://188.166.161.13:8061/user/login/confirm-otp/', {
+            const response = await fetch('http://188.166.161.13:8065/user/login/confirm-otp/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, otp }),
@@ -170,7 +170,7 @@ const OtpVerify: React.FC = () => {
         try {
             // Re-call login without password — the server re-sends OTP on 202
             // (If your backend requires password again, prompt the user to go back)
-            const response = await fetch('http://188.166.161.13:8061/user/login/confirm-otp/', {
+            const response = await fetch('http://188.166.161.13:8065/user/login/confirm-otp/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, otp: 'resend' }), // sentinel — adjust per backend docs

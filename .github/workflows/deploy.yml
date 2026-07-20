@@ -52,4 +52,4 @@ jobs:
             npm install
             npm run build
             systemctl restart nginx
-            pm2 reload vendor-portal
+            pm2 reload vendor-portal-v2
