@@ -32,8 +32,9 @@ jobs:
             git pull origin test-v2
             npm install
             npm run build
+            pm2 reload vendor-portal-v2
             systemctl restart nginx
-            pm2 reload vendor-portal
+            
 
       # ROUTE 2: Deploys when pushing to test, bedc, or aple
       - name: Deploy Standard Branches to Server
@@ -52,4 +53,4 @@ jobs:
             npm install
             npm run build
             systemctl restart nginx
-            pm2 reload vendor-portal-v2
+            pm2 reload vendor-portal

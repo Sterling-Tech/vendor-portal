@@ -27,6 +27,7 @@ type Transaction = {
     status: TransactionStatus;
     case: string;
     account_no: string;
+    amount: number;
     direction: TransactionDirection;
     value: number;
     created_at: string;
@@ -156,6 +157,7 @@ const TransactionManagement: React.FC = () => {
                 reference: item.transaction_ref,
                 status: item.status || 'success',
                 case: item.case || 'N/A',
+                amount: Number(item.amount || 0),
                 account_no: item.account_no ?? '',
                 direction: Number(item.amount) >= 0 ? 'credit' : 'debit',
                 value: Math.abs(Number(item.amount || 0)),
@@ -595,9 +597,9 @@ const TransactionManagement: React.FC = () => {
                                             {/* <TableCell><Chip label={tx.status} size="small" color={statusColor(tx.status)} sx={{ fontWeight: 600, textTransform: 'capitalize' }} /></TableCell> */}
                                             <TableCell><Chip label={tx.case} size="small" color={directionColor(tx.case)} variant="outlined" sx={{ fontWeight: 600, textTransform: 'capitalize' }} /></TableCell>
                                             <TableCell align="right">
-                                                {tx.case === 'credit' ? (
-                                                    <Typography fontWeight={700} color="success.main">+{formatCurrency(tx.value)}</Typography>
-                                                ) : <Typography color="text.disabled">—</Typography>}
+                                                {/* {tx.case === 'credit' ? ( */}
+                                                    <Typography fontWeight={700} color="success.main">{formatCurrency(tx.amount)}</Typography>
+                                                {/* ) : <Typography color="text.disabled">—</Typography>} */}
                                             </TableCell>
                                         </TableRow>
                                     ))}

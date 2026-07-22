@@ -5,12 +5,14 @@ import {
     Grid, IconButton, InputLabel, MenuItem, Paper, Select, Stack, Tab,
     Table, TableBody, TableCell, TableHead, TablePagination, TableRow,
     Tabs, TextField, Typography, ListItemButton, ListItemText, Tooltip,
+    ToggleButton, ToggleButtonGroup,
 } from '@mui/material';
 import {
     AccountBalance, ArrowBack, ArrowDropDown, ArrowForward, Business,
     CheckCircle, ChevronRight, Close, ContentCopy, Domain, ErrorOutline,
     Key, People, Receipt, Refresh, Settings, AccountBalanceWallet,
     ListAlt, History, WarningAmber, TrendingUp, TrendingDown,
+    Image as ImageIcon, Description, UploadFile, DeleteOutline, AutoAwesome,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../../store/hooks';
@@ -97,6 +99,16 @@ const getWalletBalance = (v?: RelatedVendor | null) => toNumber(v?.wallet?.balan
 const getWalletType = (v?: RelatedVendor | null) => v?.wallet?.wallet_type?.name || 'Wallet';
 const getLocation = (v: RelatedVendor) =>
     [v.city, v.state, v.country].filter(Boolean).join(', ') || v.address || 'Not provided';
+
+// ─── Proof-of-payment upload helpers ────────────────────────────────────────
+const PROOF_MAX_BYTES = 5 * 1024 * 1024; // 5MB
+const PROOF_IMAGE_ACCEPT = 'image/png,image/jpeg,image/jpg,image/webp,image/heic';
+const PROOF_DOCUMENT_ACCEPT = '.pdf,.xls,.xlsx,.doc,.docx,.csv';
+const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 const getCurrentVendorId = () => {
     if (typeof window === 'undefined') return '1';
@@ -238,17 +250,48 @@ const Dashboard: React.FC = () => {
 
     // ── Fund Wallet dialog ────────────────────────────────────────────────────
     const [fundOpen, setFundOpen] = useState(false);
+    const [fundTab, setFundTab] = useState<'manual' | 'automatic'>('manual');
     const [fundAmount, setFundAmount] = useState('');
     const [fundLoading, setFundLoading] = useState(false);
+    const [proofType, setProofType] = useState<'image' | 'document'>('image');
+    const [proofFile, setProofFile] = useState<File | null>(null);
+    const [proofPreviewUrl, setProofPreviewUrl] = useState<string | null>(null);
+    const [proofError, setProofError] = useState<string | null>(null);
     const [fundResult, setFundResult] = useState<
         | { kind: 'success'; data: FundWalletResult }
         | { kind: 'error'; message: string }
         | null
     >(null);
 
-    const openFundDialog = () => { setFundAmount(''); setFundResult(null); setFundOpen(true); };
-    const closeFundDialog = () => { setFundOpen(false); setFundAmount(''); setFundResult(null); };
+    const clearProofFile = () => {
+        if (proofPreviewUrl) URL.revokeObjectURL(proofPreviewUrl);
+        setProofFile(null); setProofPreviewUrl(null); setProofError(null);
+    };
+
+    const openFundDialog = () => {
+        setFundAmount(''); setFundResult(null); setFundTab('manual');
+        setProofType('image'); clearProofFile(); setFundOpen(true);
+    };
+    const closeFundDialog = () => { setFundOpen(false); setFundAmount(''); setFundResult(null); clearProofFile(); };
     const closeFundResult = () => setFundResult(null);
+
+    const handleProofTypeChange = (type: 'image' | 'document') => {
+        setProofType(type); clearProofFile();
+    };
+
+    const handleProofFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        if (file.size > PROOF_MAX_BYTES) {
+            setProofError('That file is too large — please upload something under 5MB.');
+            return;
+        }
+        if (proofPreviewUrl) URL.revokeObjectURL(proofPreviewUrl);
+        setProofFile(file);
+        setProofError(null);
+        setProofPreviewUrl(proofType === 'image' ? URL.createObjectURL(file) : null);
+    };
 
     const copyText = (text: string) => {
         navigator.clipboard?.writeText(text).catch(() => {});
@@ -261,10 +304,19 @@ const Dashboard: React.FC = () => {
         }
         setFundLoading(true);
         try {
-            const data = await dashboardService.requestWalletFunding({ amount: fundAmount });
+            // NOTE: proofFile is captured client-side and passed through here.
+            // The backend's request-funding endpoint will need to accept
+            // multipart/form-data (a `proof` field) for the file to actually
+            // be persisted — wire that up in dashboardService.requestWalletFunding
+            // once the API supports it.
+            const data = await dashboardService.requestWalletFunding({
+                amount: fundAmount,
+                ...(proofFile ? { proof: proofFile, proof_type: proofType } : {}),
+            } as any);
             setFundOpen(false);
             setFundResult({ kind: 'success', data });
             setFundAmount('');
+            clearProofFile();
         } catch (err: any) {
             setFundOpen(false);
             setFundResult({ kind: 'error', message: extractError(err) });
@@ -785,45 +837,162 @@ const Dashboard: React.FC = () => {
                     </Stack>
                 </Box>
 
-                <DialogContent sx={{ pt: 3, pb: 1 }}>
-                    <Stack spacing={2.5}>
-                        <TextField
-                            fullWidth required
-                            label="Amount (₦)"
-                            type="number"
-                            placeholder="e.g. 10000"
-                            value={fundAmount}
-                            onChange={e => setFundAmount(e.target.value)}
-                            autoFocus
-                            inputProps={{ min: 1 }}
-                            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f3f4f8' } }}
-                            helperText="Enter the amount you want to request for your wallet"
-                        />
-                        {fundAmount && Number(fundAmount) > 0 && (
-                            <Box sx={{ p: 2, bgcolor: '#eff6ff', borderRadius: 2, border: '1px solid #bfdbfe' }}>
-                                <Typography variant="body2" color="primary.main" fontWeight={700}>
-                                    You are requesting{' '}
-                                    {new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(Number(fundAmount))}
-                                    {' '}for your wallet.
-                                </Typography>
-                            </Box>
-                        )}
-                    </Stack>
-                </DialogContent>
+                <Tabs
+                    value={fundTab}
+                    onChange={(_, v: 'manual' | 'automatic') => setFundTab(v)}
+                    variant="fullWidth"
+                    sx={{
+                        px: 1, pt: 1.5,
+                        '& .MuiTab-root': { textTransform: 'none', fontWeight: 700, minHeight: 44 },
+                    }}
+                >
+                    <Tab value="manual" label="Manual" />
+                    <Tab value="automatic" label="Automatic" />
+                </Tabs>
+                <Divider />
 
-                <DialogActions sx={{ px: 3, py: 2.5, gap: 1 }}>
-                    <Button fullWidth variant="outlined" onClick={closeFundDialog} sx={{ borderRadius: 2, textTransform: 'none' }}>
-                        Cancel
-                    </Button>
-                    <Button
-                        fullWidth variant="contained"
-                        onClick={handleFundSubmit}
-                        disabled={fundLoading || !fundAmount || Number(fundAmount) <= 0}
-                        sx={{ borderRadius: 2, textTransform: 'none', bgcolor: '#1e3a8a', '&:hover': { bgcolor: '#1e40af' }, fontWeight: 700 }}
-                    >
-                        {fundLoading ? <CircularProgress size={18} color="inherit" /> : 'Submit Request'}
-                    </Button>
-                </DialogActions>
+                {fundTab === 'manual' ? (
+                    <>
+                        <DialogContent sx={{ pt: 3, pb: 1 }}>
+                            <Stack spacing={2.5}>
+                                <TextField
+                                    fullWidth required
+                                    label="Amount (₦)"
+                                    type="number"
+                                    placeholder="e.g. 10000"
+                                    value={fundAmount}
+                                    onChange={e => setFundAmount(e.target.value)}
+                                    autoFocus
+                                    inputProps={{ min: 1 }}
+                                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f3f4f8' } }}
+                                    helperText="Enter the amount you want to request for your wallet"
+                                />
+                                {fundAmount && Number(fundAmount) > 0 && (
+                                    <Box sx={{ p: 2, bgcolor: '#eff6ff', borderRadius: 2, border: '1px solid #bfdbfe' }}>
+                                        <Typography variant="body2" color="primary.main" fontWeight={700}>
+                                            You are requesting{' '}
+                                            {new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(Number(fundAmount))}
+                                            {' '}for your wallet.
+                                        </Typography>
+                                    </Box>
+                                )}
+
+                                {/* ── Proof of Payment ── */}
+                                <Box>
+                                    <Typography variant="subtitle2" fontWeight={700} mb={0.25}>Proof of Payment</Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block" mb={1.25}>
+                                        Attach a screenshot or document supporting this request (optional)
+                                    </Typography>
+
+                                    <ToggleButtonGroup
+                                        value={proofType}
+                                        exclusive
+                                        size="small"
+                                        onChange={(_, v) => v && handleProofTypeChange(v)}
+                                        sx={{
+                                            mb: 1.5, width: '100%',
+                                            '& .MuiToggleButton-root': {
+                                                flex: 1, textTransform: 'none', fontWeight: 600, borderRadius: '8px !important',
+                                                gap: 0.75,
+                                            },
+                                        }}
+                                    >
+                                        <ToggleButton value="image"><ImageIcon fontSize="small" /> Image</ToggleButton>
+                                        <ToggleButton value="document"><Description fontSize="small" /> Document</ToggleButton>
+                                    </ToggleButtonGroup>
+
+                                    {proofError && (
+                                        <Alert severity="error" sx={{ mb: 1.5, borderRadius: 2 }} onClose={() => setProofError(null)}>
+                                            {proofError}
+                                        </Alert>
+                                    )}
+
+                                    {!proofFile ? (
+                                        <Box
+                                            component="label"
+                                            sx={{
+                                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                                gap: 0.75, p: 3, borderRadius: 2, cursor: 'pointer',
+                                                border: '2px dashed #cbd5e1', bgcolor: '#f8faff',
+                                                transition: 'all 0.2s', textAlign: 'center',
+                                                '&:hover': { borderColor: '#6366f1', bgcolor: '#f0f7ff' },
+                                            }}
+                                        >
+                                            <input
+                                                type="file" hidden
+                                                accept={proofType === 'image' ? PROOF_IMAGE_ACCEPT : PROOF_DOCUMENT_ACCEPT}
+                                                onChange={handleProofFileChange}
+                                            />
+                                            <UploadFile sx={{ fontSize: 30, color: '#94a3b8' }} />
+                                            <Typography variant="body2" fontWeight={600} color="text.secondary">
+                                                Click to upload {proofType === 'image' ? 'an image' : 'a document'}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                                {proofType === 'image' ? 'PNG, JPG, WEBP' : 'PDF, Excel, or Word'} · up to 5MB
+                                            </Typography>
+                                        </Box>
+                                    ) : (
+                                        <Box sx={{ p: 1.5, borderRadius: 2, border: '1px solid #e2e8f0', bgcolor: '#f8faff' }}>
+                                            <Stack direction="row" spacing={1.5} alignItems="center">
+                                                {proofType === 'image' && proofPreviewUrl ? (
+                                                    <Box
+                                                        component="img" src={proofPreviewUrl} alt="Proof preview"
+                                                        sx={{ width: 48, height: 48, borderRadius: 1.5, objectFit: 'cover', flexShrink: 0 }}
+                                                    />
+                                                ) : (
+                                                    <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main', width: 48, height: 48 }}>
+                                                        <Description />
+                                                    </Avatar>
+                                                )}
+                                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                                    <Typography variant="body2" fontWeight={600} noWrap>{proofFile.name}</Typography>
+                                                    <Typography variant="caption" color="text.secondary">{formatFileSize(proofFile.size)}</Typography>
+                                                </Box>
+                                                <IconButton size="small" onClick={clearProofFile}>
+                                                    <DeleteOutline fontSize="small" />
+                                                </IconButton>
+                                            </Stack>
+                                        </Box>
+                                    )}
+                                </Box>
+                            </Stack>
+                        </DialogContent>
+
+                        <DialogActions sx={{ px: 3, py: 2.5, gap: 1 }}>
+                            <Button fullWidth variant="outlined" onClick={closeFundDialog} sx={{ borderRadius: 2, textTransform: 'none' }}>
+                                Cancel
+                            </Button>
+                            <Button
+                                fullWidth variant="contained"
+                                onClick={handleFundSubmit}
+                                disabled={fundLoading || !fundAmount || Number(fundAmount) <= 0}
+                                sx={{ borderRadius: 2, textTransform: 'none', bgcolor: '#1e3a8a', '&:hover': { bgcolor: '#1e40af' }, fontWeight: 700 }}
+                            >
+                                {fundLoading ? <CircularProgress size={18} color="inherit" /> : 'Submit Request'}
+                            </Button>
+                        </DialogActions>
+                    </>
+                ) : (
+                    <>
+                        <DialogContent sx={{ py: 5 }}>
+                            <Stack alignItems="center" textAlign="center" spacing={1.5}>
+                                <Avatar sx={{ width: 64, height: 64, bgcolor: 'warning.light', color: 'warning.main' }}>
+                                    <AutoAwesome sx={{ fontSize: 30 }} />
+                                </Avatar>
+                                <Typography variant="h6" fontWeight={700}>Automatic Funding</Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 320 }}>
+                                    Automatic, recurring funding requests aren't available yet — we're working on it.
+                                </Typography>
+                                <Chip label="Coming Soon" color="warning" sx={{ fontWeight: 700, mt: 1 }} />
+                            </Stack>
+                        </DialogContent>
+                        <DialogActions sx={{ px: 3, pb: 3 }}>
+                            <Button fullWidth variant="outlined" onClick={closeFundDialog} sx={{ borderRadius: 2, textTransform: 'none' }}>
+                                Close
+                            </Button>
+                        </DialogActions>
+                    </>
+                )}
             </Dialog>
 
             {/* ══════════════════════════════════════════════════════════════════
