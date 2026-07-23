@@ -21,6 +21,7 @@ import PrepaidServices from './pages/Prepaid/PrepaidServices';
 import GroupManagement from './pages/Roles/Roles';
 import OtpVerify from './pages/Auth/Otp';
 import Historys from './pages/Tenants/History';
+import SchemeReference from './pages/Schemereference/schemes';
 
 // Enhanced theme
 const theme = createTheme({
@@ -207,6 +208,16 @@ const App: React.FC = () => {
                                     <ProtectedRoute>
                                         <Layout>
                                             <Historys />
+                                        </Layout>
+                                    </ProtectedRoute>
+                                }
+                            />
+                             <Route
+                                path="/reference"
+                                element={
+                                    <ProtectedRoute>
+                                        <Layout>
+                                            <SchemeReference />
                                         </Layout>
                                     </ProtectedRoute>
                                 }
