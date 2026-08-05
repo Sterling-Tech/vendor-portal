@@ -41,14 +41,6 @@ export interface GrantPermissionPayload {
     user: string;
     permissions: number[];
 }
-// export interface PermissionItem {
-//     permission: {
-//         id: number;
-//         name: string;
-//         description: string;
-//         code: string;
-//     };
-// }
 export interface PermissionItem {
         id: number;
         name: string;
@@ -69,7 +61,6 @@ export const extractError = (err: any): string => {
     if (typeof err.error === 'string') return err.error;
     if (Array.isArray(err.non_field_errors) && err.non_field_errors.length)
         return err.non_field_errors.join(' ');
-    // Field-keyed errors: { email: ["already exists"] }
     const msgs: string[] = [];
     for (const [k, v] of Object.entries(err))
         if (Array.isArray(v)) msgs.push(`${k}: ${(v as string[]).join(', ')}`);
@@ -79,15 +70,9 @@ export const extractError = (err: any): string => {
 export const createNewAdmin = (data: adminForm) => {
     return post<CreateAdmin>('/user/admin/', data);
 }
-// export const changePassword = (data: adminForm) => {
-//     return post<CreateAdmin>('/user/admin/', data);
-// }
 export const getAllAdmin = () => {
     return get<CreateAdmin[]>('/user/admin/');
 }
-// ─── Update user profile  PUT /user/update-profile/ ───────────────────────────
-// Allowed fields: name, gender, phone_number, is_2fa_enabled
-// Email is NOT accepted by this endpoint — never pass it
 export const updateProfile = (data: UpdateProfilePayload) =>
     put<UserProfile>('/user/update-profile/', data);
 
@@ -100,6 +85,82 @@ export const grantPermissions = (
     return post("/user/grant-permission/", data);
 };
 export const changePassword = (data: ChangePasswordPayload) =>  {
-        // Uses PUT as per the API spec
-        return put<any>('/user/change-password/', data);
+        return put<any>('/user/change-password/',data);
     };
+
+// ═════════════════════════════════════════════════════════════════════════
+// TOTP (AUTHENTICATOR APP) 2FA
+// ═════════════════════════════════════════════════════════════════════════
+
+export interface TotpSetupResponse {
+    secret: string;
+    otpauth_uri: string;
+    qr_code: string;
+}
+
+export interface TotpConfirmPayload {
+    otp: string;
+}
+
+export interface TotpUserProfile {
+    id: number;
+    name: string;
+    gender: string;
+    phone_number: string;
+    email: string;
+    is_2fa_enabled: boolean;
+    two_fa_method: 'email' | 'authenticator';
+    totp_confirmed: boolean;
+    group?: { id: number; name: string; description: string; created_at: string } | null;
+    user_type: string;
+    [key: string]: any;
+}
+
+export const setupTotp = () =>
+    post<TotpSetupResponse>('/user/2fa/totp/setup/', {});
+
+export const confirmTotp = (data: TotpConfirmPayload) =>
+    post<TotpUserProfile>('/user/2fa/totp/confirm/', data);
+
+export const disableTotp = () =>
+    post<TotpUserProfile>('/user/2fa/totp/disable/', {});
+
+// ═════════════════════════════════════════════════════════════════════════
+// TOTP LOGIN VERIFICATION  (called from TotpLoginVerify page)
+// ═════════════════════════════════════════════════════════════════════════
+
+export interface TotpLoginPayload {
+    email: string;
+    otp: string;
+}
+
+/** POST /user/login/confirm-totp/ — verify TOTP code during login */
+export const verifyTotpLogin = (data: TotpLoginPayload) =>
+    post<any>('/user/login/confirm-totp/', data);
+
+// ═════════════════════════════════════════════════════════════════════════
+// PASSWORD POLICY
+// ═════════════════════════════════════════════════════════════════════════
+
+export interface PasswordPolicy {
+    is_enabled: boolean;
+    min_length: number;
+    require_upper: boolean;
+    require_lower: boolean;
+    require_number: boolean;
+    require_symbol: boolean;
+    block_common_passwords: boolean;
+    check_hibp_online: boolean;
+    history_depth: number;
+    max_failed_attempts: number;
+    lockout_minutes: number;
+    attempt_window_minutes: number;
+    password_expiry_days: number;
+    updated_at?: string;
+}
+
+export const getPasswordPolicy = () =>
+    get<PasswordPolicy>('/user/password-policy/');
+
+export const updatePasswordPolicy = (data: Omit<PasswordPolicy, 'updated_at'>) =>
+    put<PasswordPolicy>('/user/password-policy/', data);

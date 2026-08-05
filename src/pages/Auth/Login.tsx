@@ -60,21 +60,29 @@ const Login: React.FC = () => {
                 return;
             }
 
-            // ── 202 → 2FA is ON — OTP has been sent to email ──────────────
+            // ── Check if TOTP authenticator is required ────────────────────
+            const user = data.user;
+            const needsTotp = user?.is_2fa_enabled && user?.two_fa_method === 'authenticator' && user?.totp_confirmed;
+            if (needsTotp) {
+                sessionStorage.setItem('otp_email', formData.email);
+                navigate('/totp-verify');
+                return;
+            }
+
+            // ── 202 → Email 2FA is ON — OTP has been sent to email ────────
             if (response.status === 202) {
-                // Store email temporarily so OTP page can use it
                 sessionStorage.setItem('otp_email', formData.email);
                 navigate('/otp-verify');
                 return;
             }
 
-            // ── 200 → 2FA is OFF — log in directly ───────────────────────
-            const { user, token, refreshToken } = extractAuthPayload(data);
+            // ── 200 → Direct login ────────────────────────────────────────
+            const { user: authUser, token, refreshToken } = extractAuthPayload(data);
             if (!token) { setError('Login response did not include an access token'); return; }
 
             const authPayload: { token: string; refreshToken?: string | null; user?: User | null } = { token };
             if (refreshToken !== undefined) authPayload.refreshToken = refreshToken;
-            if (user !== undefined) authPayload.user = user;
+            if (authUser !== undefined) authPayload.user = authUser;
 
             dispatch(setAuth(authPayload));
             navigate('/tenants/dashboard');

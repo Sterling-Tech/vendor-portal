@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Box, Typography, Card, CardContent, Grid, TextField, Button,
   Switch, FormControlLabel, Alert, Snackbar, Tabs, Tab,
   MenuItem, CircularProgress, Chip, Stack,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from "@mui/material";
 import {
   Security as SecurityIcon, AccountCircle as AccountIcon,
   Save as SaveIcon, SettingsApplications as ConfigIcon,
   Shield as ShieldIcon, History as HistoryIcon,
+  PhonelinkLock as PhonelinkLockIcon, Policy as PolicyIcon,
+  CheckCircle as CheckCircleIcon, Cancel as CancelIcon,
 } from "@mui/icons-material";
 import { useAppSelector, useAppDispatch } from "../../store/store";
 import { setAuth } from "../../store/slices/authSlice";
@@ -15,15 +18,18 @@ import CreateNewAdmin from "./CreateNewAdmin";
 import AllAdmin from "./AllAdmin";
 import AssignPermission from "./AssignPermission";
 import AuditLogs from "./Auditlogs";
-import { changePassword, extractError,updateProfile } from "../../services/settingService";
+import {
+  changePassword, extractError, updateProfile,
+  setupTotp, confirmTotp, disableTotp,
+  getPasswordPolicy, updatePasswordPolicy,
+  type PasswordPolicy,
+} from "../../services/settingService";
 
 const getToken = () =>
   localStorage.getItem("token") ||
   localStorage.getItem("access_token") ||
   localStorage.getItem("accessToken") ||
   "";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const GENDER_OPTIONS = [
   { label: "Male", value: "male" },
@@ -41,29 +47,23 @@ const Settings: React.FC = () => {
   const { user } = useAppSelector((state) => state.auth);
   const dispatch = useAppDispatch();
 
-  const [activeTab, setActiveTab] = useState(0);
-
-  // ── success / page-level error ──────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<number>(0);
   const [success, setSuccess] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
 
-  // ── Account / Profile state ─────────────────────────────────────────────────
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileForm, setProfileForm] = useState({
     name: "",
     gender: "",
     phone_number: "",
-    // read-only display fields (not sent to API)
     email: "",
     user_type: "",
   });
-  // 2FA toggle — tracked separately so we can optimistically update
   const [is2faEnabled, setIs2faEnabled] = useState(false);
   const [toggling2fa, setToggling2fa] = useState(false);
   const [twoFaError, setTwoFaError] = useState<string | null>(null);
 
-  // ── Security state ──────────────────────────────────────────────────────────
   const [securityLoading, setSecurityLoading] = useState(false);
   const [securityError, setSecurityError] = useState<string | null>(null);
   const [securityForm, setSecurityForm] = useState({
@@ -72,7 +72,27 @@ const Settings: React.FC = () => {
     confirm_password: "",
   });
 
-  // ── Populate from redux user on mount / user change ─────────────────────────
+  const twoFaMethod = (user as any)?.two_fa_method || "email";
+  const totpConfirmed = Boolean((user as any)?.totp_confirmed);
+  const totpActive = twoFaMethod === "authenticator" && totpConfirmed;
+
+  const [totpSetupMode, setTotpSetupMode] = useState(false);
+  const [totpSettingUp, setTotpSettingUp] = useState(false);
+  const [totpDialogOpen, setTotpDialogOpen] = useState(false);
+  const [totpSetupData, setTotpSetupData] = useState<{ secret: string; otpauth_uri: string; qr_code: string } | null>(null);
+  const [totpOtp, setTotpOtp] = useState("");
+  const [totpConfirming, setTotpConfirming] = useState(false);
+  const [totpError, setTotpError] = useState<string | null>(null);
+  const [totpDisableConfirmOpen, setTotpDisableConfirmOpen] = useState(false);
+  const [totpDisabling, setTotpDisabling] = useState(false);
+
+  const [policy, setPolicy] = useState<PasswordPolicy | null>(null);
+  const [policyForm, setPolicyForm] = useState<PasswordPolicy | null>(null);
+  const [policyLoading, setPolicyLoading] = useState(false);
+  const [policyLoadError, setPolicyLoadError] = useState<string | null>(null);
+  const [policySaving, setPolicySaving] = useState(false);
+  const [policyError, setPolicyError] = useState<string | null>(null);
+
   useEffect(() => {
     if (user) {
       setProfileForm({
@@ -86,11 +106,121 @@ const Settings: React.FC = () => {
     }
   }, [user]);
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // UPDATE PROFILE  PUT /user/update-profile/
-  // Fields allowed: name, gender, phone_number
-  // Email is READ-ONLY (disabled in UI, not sent to API)
-  // ─────────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const loadPolicy = async () => {
+      setPolicyLoading(true);
+      setPolicyLoadError(null);
+      try {
+        const data = await getPasswordPolicy();
+        setPolicy(data);
+        setPolicyForm(data);
+      } catch (err: any) {
+        setPolicyLoadError(extractError(err));
+        setPolicy(null);
+        setPolicyForm(null);
+      } finally {
+        setPolicyLoading(false);
+      }
+    };
+    loadPolicy();
+  }, []);
+
+  const passwordChecks = useMemo(() => {
+    if (!policy) return null;
+    const pwd = securityForm.new_password || "";
+    const checks: { label: string; passed: boolean }[] = [
+      { label: `At least ${policy.min_length} characters`, passed: pwd.length >= policy.min_length },
+    ];
+    if (policy.require_upper) checks.push({ label: "One uppercase letter (A-Z)", passed: /[A-Z]/.test(pwd) });
+    if (policy.require_lower) checks.push({ label: "One lowercase letter (a-z)", passed: /[a-z]/.test(pwd) });
+    if (policy.require_number) checks.push({ label: "One number (0-9)", passed: /[0-9]/.test(pwd) });
+    if (policy.require_symbol) checks.push({ label: "One symbol (e.g. !@#$%)", passed: /[^A-Za-z0-9]/.test(pwd) });
+    return checks;
+  }, [policy, securityForm.new_password]);
+
+  const handleTotpToggle = async (checked: boolean) => {
+    setTotpError(null);
+    if (checked) {
+      setTotpSetupMode(true);
+      setTotpSettingUp(true);
+      try {
+        const data = await setupTotp();
+        setTotpSetupData(data);
+        setTotpOtp("");
+        setTotpDialogOpen(true);
+      } catch (err: any) {
+        setTotpSetupMode(false);
+        setTotpError(extractError(err));
+      } finally {
+        setTotpSettingUp(false);
+      }
+    } else {
+      setTotpDisableConfirmOpen(true);
+    }
+  };
+
+  const handleCancelTotpSetup = () => {
+    setTotpDialogOpen(false);
+    setTotpSetupData(null);
+    setTotpOtp("");
+    setTotpError(null);
+    setTotpSetupMode(false);
+  };
+
+  const handleConfirmTotp = async () => {
+    if (!totpOtp.trim() || totpOtp.trim().length !== 6) {
+      setTotpError("Enter the 6-digit code shown in your authenticator app.");
+      return;
+    }
+    setTotpConfirming(true);
+    setTotpError(null);
+    try {
+      const updated = await confirmTotp({ otp: totpOtp.trim() });
+      dispatch(setAuth({ token: getToken(), user: { ...user, ...updated } }));
+      setTotpDialogOpen(false);
+      setTotpSetupData(null);
+      setTotpOtp("");
+      setTotpSetupMode(false);
+      setSuccess("Authenticator app activated! You'll be asked for a code from it at your next login.");
+    } catch (err: any) {
+      setTotpError(extractError(err));
+    } finally {
+      setTotpConfirming(false);
+    }
+  };
+
+  const handleDisableTotp = async () => {
+    setTotpDisabling(true);
+    setTotpError(null);
+    try {
+      const updated = await disableTotp();
+      dispatch(setAuth({ token: getToken(), user: { ...user, ...updated } }));
+      setTotpDisableConfirmOpen(false);
+      setSuccess("Authenticator app disabled. Login codes will be sent to your email again.");
+    } catch (err: any) {
+      setTotpError(extractError(err));
+    } finally {
+      setTotpDisabling(false);
+    }
+  };
+
+  const handleSavePolicy = async () => {
+    if (!policyForm) return;
+    setPolicyError(null);
+    setPolicySaving(true);
+    try {
+      const { updated_at, ...payload } = policyForm;
+      const updated = await updatePasswordPolicy(payload);
+      setPolicy(updated);
+      setPolicyForm(updated);
+      setSuccess("Password policy updated successfully!");
+    } catch (err: any) {
+      setPolicyError(extractError(err));
+    } finally {
+      setPolicySaving(false);
+    }
+  };
+
   const handleSaveProfile = async () => {
     setProfileError(null);
     if (!profileForm.name.trim()) {
@@ -104,7 +234,6 @@ const Settings: React.FC = () => {
         gender: profileForm.gender || undefined,
         phone_number: profileForm.phone_number || undefined,
       });
-      // Persist updated user into redux so the UI reflects changes immediately
       dispatch(setAuth({ token: getToken(), user: { ...user, ...updated } }));
       setSuccess("Profile updated successfully!");
     } catch (err: any) {
@@ -114,20 +243,15 @@ const Settings: React.FC = () => {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // TOGGLE 2FA  — uses the same PUT /user/update-profile/ but only sends is_2fa_enabled
-  // ─────────────────────────────────────────────────────────────────────────────
   const handleToggle2fa = async (checked: boolean) => {
     setTwoFaError(null);
     setToggling2fa(true);
-    // Optimistic update
     setIs2faEnabled(checked);
     try {
       const updated = await updateProfile({ is_2fa_enabled: checked });
       dispatch(setAuth({ token: getToken(), user: { ...user, ...updated } }));
       setSuccess(`Two-factor authentication ${checked ? "enabled" : "disabled"}.`);
     } catch (err: any) {
-      // Roll back optimistic update on failure
       setIs2faEnabled(!checked);
       setTwoFaError(extractError(err));
     } finally {
@@ -135,14 +259,15 @@ const Settings: React.FC = () => {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // CHANGE PASSWORD  PUT /user/change-password/
-  // ─────────────────────────────────────────────────────────────────────────────
   const handleSaveSecurity = async () => {
     setSecurityError(null);
     if (!securityForm.old_password.trim()) { setSecurityError("Current password is required."); return; }
     if (!securityForm.new_password.trim()) { setSecurityError("New password is required."); return; }
     if (securityForm.new_password !== securityForm.confirm_password) { setSecurityError("Passwords do not match."); return; }
+    if (passwordChecks && passwordChecks.some(c => !c.passed)) {
+      setSecurityError("Your new password doesn't meet all the requirements listed below.");
+      return;
+    }
 
     setSecurityLoading(true);
     try {
@@ -160,10 +285,8 @@ const Settings: React.FC = () => {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <Box p={3} sx={{ background: "#F8FAFC", minHeight: "100vh" }}>
-      {/* ── Page header ── */}
       <Box mb={4}>
         <Typography variant="h4" fontWeight={800}>System Settings</Typography>
         <Typography color="#64748B" mt={1}>
@@ -171,7 +294,6 @@ const Settings: React.FC = () => {
         </Typography>
       </Box>
 
-      {/* ── Global success toast ── */}
       <Snackbar
         open={!!success}
         autoHideDuration={5000}
@@ -190,11 +312,11 @@ const Settings: React.FC = () => {
       )}
 
       <Card sx={{ borderRadius: 5, overflow: "hidden", boxShadow: "0 10px 40px rgba(15,23,42,0.06)" }}>
-        {/* ── Tab bar ── */}
         <Box sx={{ borderBottom: "1px solid #E2E8F0", px: 2, bgcolor: "#fff" }}>
           <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} variant="scrollable" scrollButtons="auto">
             <Tab icon={<AccountIcon />} iconPosition="start" label="Account" />
             <Tab icon={<SecurityIcon />} iconPosition="start" label="Security" />
+            <Tab icon={<PolicyIcon />} iconPosition="start" label="Password Policy" />
             <Tab icon={<ConfigIcon />} iconPosition="start" label="Admin Management" />
             <Tab icon={<ConfigIcon />} iconPosition="start" label="Admin List" />
             <Tab icon={<ConfigIcon />} iconPosition="start" label="Assign Permission" />
@@ -202,9 +324,6 @@ const Settings: React.FC = () => {
           </Tabs>
         </Box>
 
-        {/* ══════════════════════════════════════════════════════════════════
-            ACCOUNT TAB — Profile + 2FA toggle
-        ══════════════════════════════════════════════════════════════════ */}
         {activeTab === 0 && (
           <CardContent sx={{ p: 4 }}>
             <Typography variant="h6" fontWeight={700} mb={0.5}>Profile Information</Typography>
@@ -219,7 +338,6 @@ const Settings: React.FC = () => {
             )}
 
             <Grid container spacing={3}>
-              {/* ── Name ── */}
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth required
@@ -230,8 +348,6 @@ const Settings: React.FC = () => {
                   helperText="Your display name across the platform"
                 />
               </Grid>
-
-              {/* ── Gender ── */}
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth select
@@ -247,8 +363,6 @@ const Settings: React.FC = () => {
                   ))}
                 </TextField>
               </Grid>
-
-              {/* ── Phone ── */}
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
@@ -258,8 +372,6 @@ const Settings: React.FC = () => {
                   sx={inputSx}
                 />
               </Grid>
-
-              {/* ── Email (READ-ONLY — not allowed in update-profile payload) ── */}
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
@@ -276,8 +388,6 @@ const Settings: React.FC = () => {
                   helperText="Email cannot be changed here"
                 />
               </Grid>
-
-              {/* ── User type (display only) ── */}
               {profileForm.user_type && (
                 <Grid item xs={12} md={6}>
                   <TextField
@@ -304,9 +414,6 @@ const Settings: React.FC = () => {
               </Button>
             </Box>
 
-            {/* ══════════════════════════════════════════════════════════════
-                TWO-FACTOR AUTHENTICATION — moved here from Security tab
-            ══════════════════════════════════════════════════════════════ */}
             <Box mt={5}>
               <Typography variant="h6" fontWeight={700} mb={0.5}>Two-Factor Authentication</Typography>
               <Typography variant="body2" color="text.secondary" mb={3}>
@@ -339,23 +446,15 @@ const Settings: React.FC = () => {
                   </Box>
                   <Box>
                     <Stack direction="row" spacing={1} alignItems="center">
-                      <Typography fontWeight={600} fontSize={15}>
-                        Two-Factor Authentication
-                      </Typography>
+                      <Typography fontWeight={600} fontSize={15}>Two-Factor Authentication</Typography>
                       <Chip
                         label={is2faEnabled ? "ON" : "OFF"}
                         size="small"
-                        sx={{
-                          height: 20, fontSize: 10, fontWeight: 700,
-                          bgcolor: is2faEnabled ? "#16a34a" : "#94a3b8",
-                          color: "#fff",
-                        }}
+                        sx={{ height: 20, fontSize: 10, fontWeight: 700, bgcolor: is2faEnabled ? "#16a34a" : "#94a3b8", color: "#fff" }}
                       />
                     </Stack>
                     <Typography variant="caption" color="text.secondary">
-                      {is2faEnabled
-                        ? "OTP will be required at every login"
-                        : "Enable to receive a login OTP via email"}
+                      {is2faEnabled ? "OTP will be required at every login" : "Enable to receive a login OTP via email"}
                     </Typography>
                   </Box>
                 </Stack>
@@ -374,13 +473,66 @@ const Settings: React.FC = () => {
                   />
                 )}
               </Box>
+                <Box sx={{
+                  mt: 2, p: 2.5, borderRadius: 3,
+                  border: "2px solid",
+                  borderColor: totpActive ? "#1e3a8a" : "#e2e8f0",
+                  bgcolor: totpActive ? "#eff6ff" : "#f8faff",
+                  transition: "all 0.3s ease",
+                  maxWidth: 520,
+                }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      <Box sx={{
+                        width: 44, height: 44, borderRadius: "50%",
+                        bgcolor: totpActive ? "#1e3a8a" : "#e2e8f0",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        transition: "background 0.3s",
+                      }}>
+                        <PhonelinkLockIcon sx={{ fontSize: 22, color: totpActive ? "#fff" : "#94a3b8" }} />
+                      </Box>
+                      <Box>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Typography fontWeight={600} fontSize={15}>Authenticator App</Typography>
+                          <Chip
+                            label={totpActive ? "ACTIVE" : "EMAIL OTP"}
+                            size="small"
+                            sx={{ height: 20, fontSize: 10, fontWeight: 700, bgcolor: totpActive ? "#16a34a" : "#94a3b8", color: "#fff" }}
+                          />
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary">
+                          {totpActive
+                            ? "Login codes come from your authenticator app"
+                            : "Use an app like Google Authenticator instead of email codes"}
+                        </Typography>
+                      </Box>
+                    </Stack>
+
+                    {totpSettingUp ? (
+                      <CircularProgress size={24} sx={{ color: "#1e3a8a", flexShrink: 0 }} />
+                    ) : (
+                      <Switch
+                        checked={totpActive || totpSetupMode}
+                        onChange={e => handleTotpToggle(e.target.checked)}
+                        sx={{
+                          flexShrink: 0,
+                          "& .MuiSwitch-thumb": { bgcolor: "#1e3a8a" },
+                          "& .Mui-checked + .MuiSwitch-track": { bgcolor: "#1e3a8a80" },
+                        }}
+                      />
+                    )}
+                  </Stack>
+
+                  {totpError && !totpDialogOpen && !totpDisableConfirmOpen && (
+                    <Alert severity="error" sx={{ mt: 2, borderRadius: 2 }} onClose={() => setTotpError(null)}>
+                      {totpError}
+                    </Alert>
+                  )}
+                </Box>
             </Box>
           </CardContent>
         )}
 
-        {/* ══════════════════════════════════════════════════════════════════
-            SECURITY TAB — Change password only (2FA moved to Account)
-        ══════════════════════════════════════════════════════════════════ */}
         {activeTab === 1 && (
           <CardContent sx={{ p: 4 }}>
             <Typography variant="h6" fontWeight={700} mb={0.5}>Change Password</Typography>
@@ -413,6 +565,22 @@ const Settings: React.FC = () => {
                   onChange={e => { setSecurityForm(p => ({ ...p, new_password: e.target.value })); setSecurityError(null); }}
                   sx={inputSx}
                 />
+                {passwordChecks && (
+                  <Box sx={{ mt: 1.5 }}>
+                    {passwordChecks.map((check, i) => (
+                      <Stack key={i} direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                        {check.passed ? (
+                          <CheckCircleIcon sx={{ fontSize: 16, color: '#16a34a' }} />
+                        ) : (
+                          <CancelIcon sx={{ fontSize: 16, color: '#94a3b8' }} />
+                        )}
+                        <Typography variant="caption" sx={{ color: check.passed ? '#16a34a' : '#94a3b8' }}>
+                          {check.label}
+                        </Typography>
+                      </Stack>
+                    ))}
+                  </Box>
+                )}
               </Grid>
               <Grid item xs={12}>
                 <TextField
@@ -448,19 +616,252 @@ const Settings: React.FC = () => {
           </CardContent>
         )}
 
-        {/* ── Admin management tabs ── */}
-        {activeTab === 2 && <CreateNewAdmin />}
-        {activeTab === 3 && <AllAdmin />}
-        {activeTab === 4 && <AssignPermission />}
+        {activeTab === 2 && (
+          <CardContent sx={{ p: 4 }}>
+            <Typography variant="h6" fontWeight={700} mb={0.5}>Password Policy</Typography>
+            <Typography variant="body2" color="text.secondary" mb={4}>
+              Configure system-wide password requirements and account lockout rules.
+            </Typography>
 
-        {/* ══════════════════════════════════════════════════════════════════
-            AUDIT LOGS TAB — API Logs / Logins / Audit Trail
-        ══════════════════════════════════════════════════════════════════ */}
-        {activeTab === 5 && (
+            {policyLoadError && (
+              <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setPolicyLoadError(null)}>
+                {policyLoadError}
+              </Alert>
+            )}
+            {policyError && (
+              <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setPolicyError(null)}>
+                {policyError}
+              </Alert>
+            )}
+
+            {policyLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : policyForm ? (
+              <Grid container spacing={3}>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth type="number"
+                    label="Minimum Password Length"
+                    value={policyForm.min_length}
+                    onChange={e => setPolicyForm(p => p ? { ...p, min_length: Number(e.target.value) } : p)}
+                    sx={inputSx}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth type="number"
+                    label="Password Expiry (days)"
+                    value={policyForm.password_expiry_days}
+                    onChange={e => setPolicyForm(p => p ? { ...p, password_expiry_days: Number(e.target.value) } : p)}
+                    sx={inputSx}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth type="number"
+                    label="Max Failed Attempts"
+                    value={policyForm.max_failed_attempts}
+                    onChange={e => setPolicyForm(p => p ? { ...p, max_failed_attempts: Number(e.target.value) } : p)}
+                    sx={inputSx}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth type="number"
+                    label="Lockout Duration (minutes)"
+                    value={policyForm.lockout_minutes}
+                    onChange={e => setPolicyForm(p => p ? { ...p, lockout_minutes: Number(e.target.value) } : p)}
+                    sx={inputSx}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <FormControlLabel
+                    control={<Switch checked={policyForm.require_upper} onChange={e => setPolicyForm(p => p ? { ...p, require_upper: e.target.checked } : p)} />}
+                    label="Require Uppercase Letter"
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <FormControlLabel
+                    control={<Switch checked={policyForm.require_lower} onChange={e => setPolicyForm(p => p ? { ...p, require_lower: e.target.checked } : p)} />}
+                    label="Require Lowercase Letter"
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <FormControlLabel
+                    control={<Switch checked={policyForm.require_number} onChange={e => setPolicyForm(p => p ? { ...p, require_number: e.target.checked } : p)} />}
+                    label="Require Number"
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <FormControlLabel
+                    control={<Switch checked={policyForm.require_symbol} onChange={e => setPolicyForm(p => p ? { ...p, require_symbol: e.target.checked } : p)} />}
+                    label="Require Symbol"
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <FormControlLabel
+                    control={<Switch checked={policyForm.block_common_passwords} onChange={e => setPolicyForm(p => p ? { ...p, block_common_passwords: e.target.checked } : p)} />}
+                    label="Block Common Passwords"
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <FormControlLabel
+                    control={<Switch checked={policyForm.is_enabled} onChange={e => setPolicyForm(p => p ? { ...p, is_enabled: e.target.checked } : p)} />}
+                    label="Policy Enabled"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <Button
+                    variant="contained"
+                    startIcon={policySaving ? undefined : <SaveIcon />}
+                    onClick={handleSavePolicy}
+                    disabled={policySaving}
+                    sx={{ borderRadius: 3, textTransform: 'none', px: 4, height: 46, bgcolor: '#1e3a8a', '&:hover': { bgcolor: '#1e40af' } }}
+                  >
+                    {policySaving ? <><CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />Saving…</> : 'Save Policy'}
+                  </Button>
+                </Grid>
+              </Grid>
+            ) : (
+              <Alert severity="warning">No password policy loaded.</Alert>
+            )}
+          </CardContent>
+        )}
+
+        {activeTab === 3 && <CreateNewAdmin />}
+        {activeTab === 4 && <AllAdmin />}
+        {activeTab === 5 && <AssignPermission />}
+
+        {activeTab === 6 && (
           <CardContent sx={{ p: 4 }}>
             <AuditLogs />
           </CardContent>
         )}
+
+        {/* TOTP Setup Dialog */}
+        <Dialog open={totpDialogOpen} onClose={handleCancelTotpSetup} maxWidth="sm" fullWidth>
+          <DialogTitle>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <PhonelinkLockIcon sx={{ color: '#1e3a8a' }} />
+              <Typography fontWeight={700}>Set Up Authenticator App</Typography>
+            </Stack>
+          </DialogTitle>
+          <DialogContent>
+            <Stack spacing={3} alignItems="center" sx={{ py: 1 }}>
+              <Typography color="text.secondary" textAlign="center">
+                Scan this QR code with <strong>Google Authenticator</strong>, <strong>Authy</strong>, or any TOTP app.
+              </Typography>
+
+              {totpSetupData?.qr_code && (
+                <Box sx={{
+                  p: 2.5, bgcolor: '#fff', borderRadius: 4,
+                  border: '2px solid #e2e8f0',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
+                }}>
+                  <img
+                    src={totpSetupData.qr_code}
+                    alt="TOTP QR Code"
+                    style={{ width: 220, height: 220, display: 'block', borderRadius: 8 }}
+                  />
+                </Box>
+              )}
+
+              <Box sx={{
+                p: 2, bgcolor: '#f8faff', borderRadius: 2,
+                border: '1px dashed #cbd5e1', width: '100%',
+              }}>
+                <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
+                  Can&apos;t scan? Enter this secret manually:
+                </Typography>
+                <Box sx={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1,
+                  bgcolor: '#fff', p: 1.5, borderRadius: 1.5, border: '1px solid #e2e8f0',
+                }}>
+                  <Typography
+                    variant="body2"
+                    fontFamily="monospace"
+                    fontWeight={700}
+                    sx={{ userSelect: 'all', wordBreak: 'break-all', color: '#1e3a8a', fontSize: 13 }}
+                  >
+                    {totpSetupData?.secret}
+                  </Typography>
+                  <Button
+                    size="small"
+                    onClick={() => { navigator.clipboard.writeText(totpSetupData?.secret || ''); }}
+                    sx={{ textTransform: 'none', minWidth: 0, flexShrink: 0 }}
+                  >
+                    Copy
+                  </Button>
+                </Box>
+              </Box>
+
+              {/* <TextField
+                fullWidth
+                label="6-digit code from app"
+                value={totpOtp}
+                onChange={e => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                  setTotpOtp(val);
+                  setTotpError(null);
+                }}
+                inputProps={{ inputMode: 'numeric', maxLength: 6 }}
+                error={!!totpError}
+                helperText={totpError || "Enter the current code shown in your authenticator app"}
+                sx={inputSx}
+                autoFocus
+              /> */}
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+            <Button onClick={handleCancelTotpSetup} color="inherit" sx={{ textTransform: 'none', borderRadius: 2 }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmTotp}
+              variant="contained"
+              disabled={totpConfirming || totpOtp.length !== 6}
+              sx={{ textTransform: 'none', borderRadius: 2, px: 3, bgcolor: '#1e3a8a', '&:hover': { bgcolor: '#1e40af' } }}
+            >
+              {totpConfirming ? <CircularProgress size={18} color="inherit" /> : 'Activate'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* TOTP Disable Confirmation Dialog */}
+        <Dialog open={totpDisableConfirmOpen} onClose={() => !totpDisabling && setTotpDisableConfirmOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle sx={{ fontWeight: 700 }}>Disable Authenticator App?</DialogTitle>
+          <DialogContent>
+            <Typography color="text.secondary">
+              This will remove the authenticator and revert to <strong>email OTP codes</strong>. Two-factor authentication will remain enabled.
+            </Typography>
+            {totpError && (
+              <Alert severity="error" sx={{ mt: 2, borderRadius: 2 }}>
+                {totpError}
+              </Alert>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+            <Button
+              onClick={() => setTotpDisableConfirmOpen(false)}
+              color="inherit"
+              disabled={totpDisabling}
+              sx={{ textTransform: 'none', borderRadius: 2 }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDisableTotp}
+              variant="contained"
+              color="error"
+              disabled={totpDisabling}
+              sx={{ textTransform: 'none', borderRadius: 2, px: 3 }}
+            >
+              {totpDisabling ? <CircularProgress size={18} color="inherit" /> : 'Disable'}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Card>
     </Box>
   );

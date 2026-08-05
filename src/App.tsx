@@ -20,6 +20,7 @@ import AgentConsole from './pages/Agents/AgentConsole';
 import PrepaidServices from './pages/Prepaid/PrepaidServices';
 import GroupManagement from './pages/Roles/Roles';
 import OtpVerify from './pages/Auth/Otp';
+import TotpLoginVerify from './pages/Auth/TotpLoginVerify';
 import Historys from './pages/Tenants/History';
 import SchemeReference from './pages/Schemereference/schemes';
 
@@ -102,6 +103,7 @@ const App: React.FC = () => {
                         <Routes>
                             <Route path="/login" element={<Login />} />
                             <Route path="/otp-verify" element={<OtpVerify />} />
+                            <Route path="/totp-verify" element={<TotpLoginVerify />} />
                             <Route
                                 path="/tenants/dashboard"
                                 element={
