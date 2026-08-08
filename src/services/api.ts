@@ -22,6 +22,7 @@ export interface ApiError {
 export const getAuthHeaders = (): Record<string, string> => {
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
+        
     };
 
     const apiKeyCredentials = getApiKeyCredentials();
@@ -74,11 +75,18 @@ export async function makeApiCall<T>(
     options: RequestInit = {}
 ): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`;
+    
+    // ── FormData guard: remove JSON Content-Type so browser sets multipart boundary ──
+    const isFormData = options.body instanceof FormData;
+    const baseHeaders = getAuthHeaders();
+    if (isFormData) {
+        delete baseHeaders['Content-Type'];
+    }
 
     const config: RequestInit = {
         ...options,
         headers: {
-            ...getAuthHeaders(),
+            ...baseHeaders,
             ...options.headers,
         },
     };
@@ -205,30 +213,36 @@ export async function get<T>(endpoint: string): Promise<T> {
 /**
  * POST request
  */
-export async function post<T>(endpoint: string, data: any): Promise<T> {
+export async function post<T>(endpoint: string, data: any, options?: RequestInit): Promise<T> {
+    const isFormData = data instanceof FormData;
     return makeApiCall<T>(endpoint, {
         method: 'POST',
-        body: JSON.stringify(data),
+        body: isFormData ? data : JSON.stringify(data),
+        ...options,
     });
 }
 
 /**
  * PUT request
  */
-export async function put<T>(endpoint: string, data: any): Promise<T> {
+export async function put<T>(endpoint: string, data: any, options?: RequestInit): Promise<T> {
+    const isFormData = data instanceof FormData;
     return makeApiCall<T>(endpoint, {
         method: 'PUT',
-        body: JSON.stringify(data),
+        body: isFormData ? data : JSON.stringify(data),
+        ...options,
     });
 }
 
 /**
  * PATCH request
  */
-export async function patch<T>(endpoint: string, data: any): Promise<T> {
+export async function patch<T>(endpoint: string, data: any, options?: RequestInit): Promise<T> {
+    const isFormData = data instanceof FormData;
     return makeApiCall<T>(endpoint, {
         method: 'PATCH',
-        body: JSON.stringify(data),
+        body: isFormData ? data : JSON.stringify(data),
+        ...options,
     });
 }
 

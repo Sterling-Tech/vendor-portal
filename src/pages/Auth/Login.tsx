@@ -85,6 +85,26 @@ const Login: React.FC = () => {
             if (authUser !== undefined) authPayload.user = authUser;
 
             dispatch(setAuth(authPayload));
+            // ── NEW: Check onboarding status before deciding where to go ──
+            try {
+                const statusRes = await fetch('http://188.166.161.13:8065/vendor/onboarding/status/', {
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+                });
+                if (statusRes.ok) {
+                    const statusData = await statusRes.json();
+                    const isOnboardingComplete = ((statusData.is_complete === true || statusData.is_complete === 'true') &&
+                        ['approved', 'completed', 'active'].includes(statusData.onboarding_status?.toLowerCase()));
+                    
+                    if (isOnboardingComplete) {
+                        navigate('/tenants/dashboard');
+                    } else {
+                        navigate('/onboarding');
+                    }
+                    return;
+                }
+            } catch {
+                // If status check fails, default to dashboard
+            }
             navigate('/tenants/dashboard');
         } catch (err: any) {
             console.error('Login error:', err);

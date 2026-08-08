@@ -65,6 +65,8 @@ export interface LedgerParams {
 /** Payload for POST /vendor/request-funding/ */
 export interface FundWalletPayload {
     amount: string | number;
+    proof_of_payment?: File | null;
+    proof_type?: 'image' | 'document';
 }
 
 /** Response from POST /vendor/request-funding/ */
@@ -116,6 +118,16 @@ export const dashboardService = {
      * N.B. This only submits a request — no actual funding occurs until approved.
      */
     requestWalletFunding(payload: FundWalletPayload): Promise<FundWalletResult> {
-        return post<FundWalletResult>('/vendor/request-funding/', payload);
+        if (payload.proof_of_payment instanceof File) {
+            const formData = new FormData();
+            formData.append('amount', String(payload.amount));
+            formData.append('proof_of_payment', payload.proof_of_payment);
+            if (payload.proof_type) {
+                formData.append('proof_type', payload.proof_type);
+            }
+            // No headers needed — makeApiCall detects FormData and removes Content-Type
+            return post<FundWalletResult>('/vendor/request-funding/', formData);
+        }
+        return post<FundWalletResult>('/vendor/request-funding/', { amount: payload.amount });
     },
 };

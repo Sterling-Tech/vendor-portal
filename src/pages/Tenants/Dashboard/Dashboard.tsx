@@ -208,7 +208,6 @@ const ResultRow = ({ label, value }: { label: string; value: React.ReactNode }) 
 const Dashboard: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAppSelector((state) => state.auth);
-
     // The current user's own hierarchy level — used to hide tabs at or above
     // their own rank. A vendor can't see other vendors, a cashier can't see
     // vendors/sub-vendors/agents/other cashiers, etc. Each role only sees the
@@ -263,6 +262,27 @@ const Dashboard: React.FC = () => {
         | null
     >(null);
 
+
+    // ── Onboarding guard ─────────────────────────────────────────────────────────
+    useEffect(() => {
+        const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+        if (!token) return;
+        
+        fetch('http://188.166.161.13:8065/vendor/onboarding/status/', {
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        })
+        .then(r => r.ok ? r.json() : null)
+        .then(status => {
+            if (!status) return;
+            const isComplete = ((status.is_complete === true || status.is_complete === 'true') &&
+                ['approved', 'completed', 'active'].includes(status.onboarding_status?.toLowerCase()));
+            if (!isComplete) {
+                navigate('/onboarding', { replace: true });
+            }
+        })
+        .catch(() => {});
+    }, [navigate]);
+
     const clearProofFile = () => {
         if (proofPreviewUrl) URL.revokeObjectURL(proofPreviewUrl);
         setProofFile(null); setProofPreviewUrl(null); setProofError(null);
@@ -311,7 +331,7 @@ const Dashboard: React.FC = () => {
             // once the API supports it.
             const data = await dashboardService.requestWalletFunding({
                 amount: fundAmount,
-                ...(proofFile ? { proof: proofFile, proof_type: proofType } : {}),
+                ...(proofFile ? { proof_of_payment: proofFile, proof_type:  proofFile ? proofType : undefined, } : {}),
             } as any);
             setFundOpen(false);
             setFundResult({ kind: 'success', data });

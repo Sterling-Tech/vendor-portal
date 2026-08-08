@@ -82,7 +82,7 @@ export interface PaginatedResult<T> {
 export const auditService = {
     /** GET /audit/logs/?start_date=&end_date= — action/summary feed across the platform */
     getAuditLogs(params: AuditLogsParams): Promise<PaginatedResult<AuditLogEntry>> {
-        return get(`/audit/logs/${buildQuery(params)}`);
+        return get(`/audit/actions/${buildQuery(params)}`);
     },
 
     /** GET /audit/history/user/?user_id= — field-level before/after history for one user */

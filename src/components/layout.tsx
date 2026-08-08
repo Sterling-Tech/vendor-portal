@@ -140,7 +140,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         // { text: 'POS', icon: <PointOfSale />, path: '/pos' },
         { text: 'Groups and Roles', icon: <PeopleAlt />, path: '/roles' },
         { text: 'Reference', icon: <Analytics />, path: '/reference' },
-        { text: 'History Logs', icon: <History />, path: '/history' },
+        // { text: 'History Logs', icon: <History />, path: '/history' },
         { text: 'Settings', icon: <Settings />, path: '/settings' },
 
     ];

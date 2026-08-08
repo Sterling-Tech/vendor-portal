@@ -23,6 +23,7 @@ import OtpVerify from './pages/Auth/Otp';
 import TotpLoginVerify from './pages/Auth/TotpLoginVerify';
 import Historys from './pages/Tenants/History';
 import SchemeReference from './pages/Schemereference/schemes';
+import Onboarding from './pages/Auth/Onboarding';
 
 // Enhanced theme
 const theme = createTheme({
@@ -104,6 +105,14 @@ const App: React.FC = () => {
                             <Route path="/login" element={<Login />} />
                             <Route path="/otp-verify" element={<OtpVerify />} />
                             <Route path="/totp-verify" element={<TotpLoginVerify />} />
+                            <Route
+                                path="/onboarding"
+                                element={
+                                    <ProtectedRoute>
+                                            <Onboarding />
+                                    </ProtectedRoute>
+                                }
+                            />
                             <Route
                                 path="/tenants/dashboard"
                                 element={
@@ -204,16 +213,7 @@ const App: React.FC = () => {
                                     </ProtectedRoute>
                                 }
                             />
-                            <Route
-                                path="/history"
-                                element={
-                                    <ProtectedRoute>
-                                        <Layout>
-                                            <Historys />
-                                        </Layout>
-                                    </ProtectedRoute>
-                                }
-                            />
+                            
                              <Route
                                 path="/reference"
                                 element={
