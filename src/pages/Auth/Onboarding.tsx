@@ -15,8 +15,7 @@ import {
     Close, Launch,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { onboardingService, extractOnboardingError } from '../../services/onboardingService';
-import { OnboardingProfile, OnboardingAgreement, BankAccount, Owner, Contact } from '../../services/onboardingService';
+import { onboardingService, extractOnboardingError, OnboardingProfile, OnboardingAgreement, BankAccount, Owner, Contact } from '../../services/onboardingService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

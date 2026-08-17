@@ -101,7 +101,7 @@ export interface FundingRequestListParams {
 
 export interface CreateVendorPayload {
     hierachy: string; related_vendor?: number | string;
-    business_name: string; email: string; phone_number: string; domain: string;
+    business_name: string; email: string; password: string; phone_number: string; domain: string;
     sub_domain?: string; slug?: string; trial_ends?: string;
     address: string; city: string; state: string; country?: string; postal_code: string;
     description?: string; industry?: string; category?: string; website?: string;
@@ -151,7 +151,7 @@ export const vendorManagementService = {
 
     /** Create a new vendor / sub-vendor / agent / cashier / POS */
     createVendor: (payload: CreateVendorPayload) =>
-        post<any>('/vendor/create/', payload),
+        post<any>('/vendor/create-child/', payload),
 
     /**
      * Configure vendor limits & commissions.

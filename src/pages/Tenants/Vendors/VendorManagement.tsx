@@ -208,8 +208,8 @@ const ResultRow = ({ label, value }: { label: string; value: React.ReactNode }) 
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 const EMPTY_FORM = {
-    hierachy: '', related_vendor: '',
-    business_name: '', email: '', phone_number: '', domain: '', sub_domain: '', slug: '', trial_ends: '', active_on_creation: true,
+    hierachy: '', related_vendor: '',  
+    business_name: '', password:'', email: '', phone_number: '', domain: '', sub_domain: '', slug: '', trial_ends: '', active_on_creation: true,
     address: '', city: '', state: '', country: 'Nigeria', postal_code: '', description: '', industry: '',
     category: '', website: '', contact_name: '', email1: '', email2: '', registration_number: '', cac_registration_number: '',
     owner_name: '', dob: '', nationality: '', id_type: '', id_number: '', owner_address: '',
@@ -228,6 +228,7 @@ const validateStep = (step: number, form: VendorFormState): Record<string, strin
     }
     if (step === 1) {
         if (!form.business_name.trim()) e.business_name = 'Business name is required';
+        if (!form.password.trim()) e.password = 'Password is required';
         if (!form.email.trim()) e.email = 'Email is required';
         if (!form.phone_number.trim()) e.phone_number = 'Phone number is required';
         if (!form.domain.trim()) e.domain = 'License / domain is required';
@@ -861,6 +862,19 @@ const VendorManagement: React.FC = () => {
             case 1: return (
                 <Grid container spacing={2.5}>
                     <Grid item xs={12}><TextField fullWidth required label="Business Name *" value={vendorForm.business_name} error={!!fe.business_name} helperText={fe.business_name} onChange={e => setField('business_name', e.target.value)} sx={tSx} /></Grid>
+                    <Grid item xs={12} md={6}>
+                        <TextField
+                            fullWidth required
+                            label="Password *"
+                            type="password"
+                            value={vendorForm.password}
+                            error={!!fe.password}
+                            helperText={fe.password}
+                            onChange={e => setField('password', e.target.value)}
+                            sx={tSx}
+                            autoComplete="new-password"
+                        />
+                    </Grid>
                     <Grid item xs={12} md={6}><TextField fullWidth required label="License / Domain *" value={vendorForm.domain} error={!!fe.domain} helperText={fe.domain} onChange={e => setField('domain', e.target.value)} sx={tSx} /></Grid>
                     <Grid item xs={12} md={6}><TextField fullWidth label="Subdomain" value={vendorForm.sub_domain} onChange={e => setField('sub_domain', e.target.value)} sx={tSx} /></Grid>
                     <Grid item xs={12} md={6}><TextField fullWidth label="Slug" value={vendorForm.slug} onChange={e => setField('slug', e.target.value)} sx={tSx} /></Grid>
