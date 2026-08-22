@@ -809,33 +809,29 @@ const VendorManagement: React.FC = () => {
                             <Checkbox checked={isSelf} onChange={e => { e.stopPropagation(); handleSelfToggle(e.target.checked); }} sx={{ color: '#1e3a8a', '&.Mui-checked': { color: '#1e3a8a' }, pointerEvents: 'none' }} />
                         </Box>
                     </Grid>
-                    <Grid item xs={12}><Divider><Typography variant="caption" color="text.secondary" px={1}>{isSelf ? 'Self selected — uncheck to pick below' : 'Or select a related vendor as parent'}</Typography></Divider></Grid>
-                    <Grid item xs={12}>
-                        <FormControl fullWidth required error={!!fe.related_vendor} sx={tSx} disabled={isSelf}>
-                            <InputLabel>{vendorListLoading ? 'Loading vendors…' : 'Select Parent Vendor *'}</InputLabel>
-                            <Select value={isSelf ? String(user?.related_vendor?.id || '') : vendorForm.related_vendor} label={vendorListLoading ? 'Loading vendors…' : 'Select Parent Vendor *'} onChange={e => handleParentVendorChange(e.target.value)} startAdornment={vendorListLoading ? <CircularProgress size={16} sx={{ ml: 1, mr: 0.5 }} /> : undefined}>
-                                <MenuItem value={String(user?.related_vendor?.id || '')} sx={{ bgcolor: '#f0f9ff' }}>
-                                    <Stack direction="row" spacing={1} alignItems="center">
-                                        <Person fontSize="small" sx={{ color: '#1e3a8a' }} />
-                                        <Box><Typography variant="body2" fontWeight={700} color="#1e3a8a">{user?.related_vendor?.business_name || 'Me (Self)'}</Typography><Typography variant="caption" color="text.secondary">Self · {user?.related_vendor?.hierachy || 'vendor'}</Typography></Box>
-                                        <Chip label="Self" size="small" color="primary" sx={{ ml: 'auto', height: 18, fontSize: 10 }} />
-                                    </Stack>
-                                </MenuItem>
-                                {relatedVendorList.length > 0 && <MenuItem disabled sx={{ py: 0.5, minHeight: 'auto', opacity: 1 }}><Divider sx={{ width: '100%' }} /></MenuItem>}
-                                {relatedVendorList.map(v => (
-                                    <MenuItem key={v.id} value={String(v.id)}>
-                                        <Stack direction="row" spacing={1.5} alignItems="center" width="100%">
-                                            <Avatar sx={{ width: 32, height: 32, bgcolor: `${levelColor(v.hierachy)}.light`, color: `${levelColor(v.hierachy)}.main`, fontSize: 12, fontWeight: 700 }}>{v.business_name.charAt(0)}</Avatar>
-                                            <Box sx={{ flex: 1, minWidth: 0 }}><Typography variant="body2" fontWeight={600} noWrap>{v.business_name}</Typography><Typography variant="caption" color="text.secondary" noWrap>{v.email}</Typography></Box>
-                                            <Stack direction="row" spacing={0.5} flexShrink={0}><Chip label={levelLabel(v.hierachy)} size="small" color={levelColor(v.hierachy)} variant="outlined" sx={{ height: 18, fontSize: 10 }} /><Chip label={v.account_status} size="small" color={statusColor(v.account_status)} sx={{ height: 18, fontSize: 10 }} /></Stack>
-                                        </Stack>
-                                    </MenuItem>
-                                ))}
-                                {relatedVendorList.length === 0 && !vendorListLoading && <MenuItem disabled><Typography variant="body2" color="text.secondary" fontStyle="italic">No related vendors found</Typography></MenuItem>}
-                            </Select>
-                            {fe.related_vendor && <FormHelperText>{fe.related_vendor}</FormHelperText>}
-                        </FormControl>
-                    </Grid>
+                    {!isSelf && (
+                        <>
+                            <Grid item xs={12}><Divider><Typography variant="caption" color="text.secondary" px={1}>Or select a related vendor as parent</Typography></Divider></Grid>
+                            <Grid item xs={12}>
+                                <FormControl fullWidth required error={!!fe.related_vendor} sx={tSx}>
+                                    <InputLabel>{vendorListLoading ? 'Loading vendors…' : 'Select Parent Vendor *'}</InputLabel>
+                                    <Select value={vendorForm.related_vendor} label={vendorListLoading ? 'Loading vendors…' : 'Select Parent Vendor *'} onChange={e => handleParentVendorChange(e.target.value)} startAdornment={vendorListLoading ? <CircularProgress size={16} sx={{ ml: 1, mr: 0.5 }} /> : undefined}>
+                                        {relatedVendorList.map(v => (
+                                            <MenuItem key={v.id} value={String(v.id)}>
+                                                <Stack direction="row" spacing={1.5} alignItems="center" width="100%">
+                                                    <Avatar sx={{ width: 32, height: 32, bgcolor: `${levelColor(v.hierachy)}.light`, color: `${levelColor(v.hierachy)}.main`, fontSize: 12, fontWeight: 700 }}>{v.business_name.charAt(0)}</Avatar>
+                                                    <Box sx={{ flex: 1, minWidth: 0 }}><Typography variant="body2" fontWeight={600} noWrap>{v.business_name}</Typography><Typography variant="caption" color="text.secondary" noWrap>{v.email}</Typography></Box>
+                                                    <Stack direction="row" spacing={0.5} flexShrink={0}><Chip label={levelLabel(v.hierachy)} size="small" color={levelColor(v.hierachy)} variant="outlined" sx={{ height: 18, fontSize: 10 }} /><Chip label={v.account_status} size="small" color={statusColor(v.account_status)} sx={{ height: 18, fontSize: 10 }} /></Stack>
+                                                </Stack>
+                                            </MenuItem>
+                                        ))}
+                                        {relatedVendorList.length === 0 && !vendorListLoading && <MenuItem disabled><Typography variant="body2" color="text.secondary" fontStyle="italic">No related vendors found</Typography></MenuItem>}
+                                    </Select>
+                                    {fe.related_vendor && <FormHelperText>{fe.related_vendor}</FormHelperText>}
+                                </FormControl>
+                            </Grid>
+                        </>
+                    )}
                     {selectedParentVendor && (
                         <Grid item xs={12}>
                             <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#f0fdf4', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: 1.5 }}>
