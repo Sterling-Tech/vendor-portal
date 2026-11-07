@@ -13,6 +13,9 @@
         "strict": true,
         "forceConsistentCasingInFileNames": true,
         "noFallthroughCasesInSwitch": true,
+        "types": [
+            "node"
+        ],
         "module": "esnext",
         "moduleResolution": "bundler",
         "resolveJsonModule": true,
