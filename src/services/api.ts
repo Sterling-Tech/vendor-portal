@@ -1,7 +1,8 @@
 import { getApiKeyCredentials } from '../utils/apiKeyStorage';
 
 // const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://188.166.161.13:8065';
-const API_BASE_URL = process.env.REACT_APP_API_SAAS_URL || 'http://188.166.161.13:8074';
+// const API_BASE_URL = process.env.REACT_APP_API_SAAS_URL || 'http://188.166.161.13:8074';
+const API_BASE_URL = process.env.REACT_APP_API_SAAS_PROD_URL || 'https://api.sterlingtechonline.com';
 
 export interface ApiResponse<T> {
     data: T;
