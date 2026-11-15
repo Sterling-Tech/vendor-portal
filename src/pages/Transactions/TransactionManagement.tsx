@@ -58,7 +58,8 @@ const directionColor = (d: string): ChipColor => d === 'credit' ? 'success' : d 
 const categoryLabel = (c: string) => (c || '').split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') || '—';
 const escapeCsv = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
-const API_BASE_URL = 'http://188.166.161.13:8065/vendor';
+// const API_BASE_URL = 'http://188.166.161.13:8065/vendor';
+const API_BASE_URL = 'https://api.sterlingtechonline.com/vendor';
 const buildHeaders = (): HeadersInit => {
     const token = typeof window !== 'undefined'
         ? localStorage.getItem('token') || localStorage.getItem('access_token') || localStorage.getItem('accessToken')

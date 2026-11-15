@@ -39,7 +39,8 @@ const Login: React.FC = () => {
         setIsLoading(true);
 
         try {
-            const response = await fetch('http://188.166.161.13:8065/user/login/', {
+            // const response = await fetch('http://188.166.161.13:8065/user/login/', {
+            const response = await fetch('https://api.sterlingtechonline.com/user/login/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(formData),
@@ -87,7 +88,8 @@ const Login: React.FC = () => {
             dispatch(setAuth(authPayload));
             // ── NEW: Check onboarding status before deciding where to go ──
             try {
-                const statusRes = await fetch('http://188.166.161.13:8065/vendor/onboarding/status/', {
+                // const statusRes = await fetch('http://188.166.161.13:8065/vendor/onboarding/status/', {
+                const statusRes = await fetch('https://api.sterlingtechonline.com/vendor/onboarding/status/', {
                     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
                 });
                 if (statusRes.ok) {

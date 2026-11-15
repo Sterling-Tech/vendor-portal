@@ -268,7 +268,8 @@ const Dashboard: React.FC = () => {
         const token = localStorage.getItem('token') || localStorage.getItem('access_token');
         if (!token) return;
         
-        fetch('http://188.166.161.13:8065/vendor/onboarding/status/', {
+        // fetch('http://188.166.161.13:8065/vendor/onboarding/status/', {
+        fetch('https://api.sterlingtechonline.com/vendor/onboarding/status/', {
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
         })
         .then(r => r.ok ? r.json() : null)
