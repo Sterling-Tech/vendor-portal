@@ -24,6 +24,8 @@ import TotpLoginVerify from './pages/Auth/TotpLoginVerify';
 import Historys from './pages/Tenants/History';
 import SchemeReference from './pages/Schemereference/schemes';
 import Onboarding from './pages/Auth/Onboarding';
+import CustomerHub from './pages/Customer/CustomerHub';
+import Vending from './pages/Customer/Vend/Vending';
 
 // Enhanced theme
 const theme = createTheme({
@@ -220,6 +222,26 @@ const App: React.FC = () => {
                                     <ProtectedRoute>
                                         <Layout>
                                             <SchemeReference />
+                                        </Layout>
+                                    </ProtectedRoute>
+                                }
+                            />
+                            <Route
+                                path="/customer"
+                                element={
+                                    <ProtectedRoute>
+                                        <Layout>
+                                            <CustomerHub />
+                                        </Layout>
+                                    </ProtectedRoute>
+                                }
+                            />
+                            <Route
+                                path="/vending"
+                                element={
+                                    <ProtectedRoute>
+                                        <Layout>
+                                            <Vending />
                                         </Layout>
                                     </ProtectedRoute>
                                 }

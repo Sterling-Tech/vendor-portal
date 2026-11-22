@@ -26,6 +26,7 @@ import {
     FundingRequest,
     FundingRequestStatus,
 } from '../../../services/vendormanagementservice';
+import Vending from '../../Customer/Vend/Vending';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Hierarchy  = 'vendor' | 'sub_vendor' | 'agent' | 'cashier' | 'pos';
@@ -263,6 +264,9 @@ const Dashboard: React.FC = () => {
     >(null);
 
 
+    const openVendForCustomerDialog =()=>{
+            navigate("/vending")
+    }
     // ── Onboarding guard ─────────────────────────────────────────────────────────
     useEffect(() => {
         const token = localStorage.getItem('token') || localStorage.getItem('access_token');
@@ -526,6 +530,7 @@ const Dashboard: React.FC = () => {
         { id: 'create',       title: 'Create New',           description: 'Vendor, sub-vendor, agent…',            icon: <Business />,        path: '/tenants/vendors', color: 'error.main' },
     ], []);
 
+    
     // ─────────────────────────────────────────────────────────────────────────
     // RENDER
     // ─────────────────────────────────────────────────────────────────────────
@@ -553,6 +558,15 @@ const Dashboard: React.FC = () => {
                     >
                         Refresh
                     </Button>
+                    <Button
+                        variant="contained"
+                        startIcon={<AccountBalanceWallet />}
+                        onClick={openVendForCustomerDialog}
+                        sx={{ bgcolor: '#1e3a8a', '&:hover': { bgcolor: '#1e40af' }, textTransform: 'none', borderRadius: 2, fontWeight: 700 }}
+                    >
+                      Vend for Customer
+                    </Button>
+
                     <Button
                         variant="contained"
                         startIcon={<AccountBalanceWallet />}

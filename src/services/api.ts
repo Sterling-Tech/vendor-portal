@@ -24,7 +24,7 @@ export interface ApiError {
 export const getAuthHeaders = (): Record<string, string> => {
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        
+
     };
 
     const apiKeyCredentials = getApiKeyCredentials();
@@ -77,7 +77,7 @@ export async function makeApiCall<T>(
     options: RequestInit = {}
 ): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`;
-    
+
     // ── FormData guard: remove JSON Content-Type so browser sets multipart boundary ──
     const isFormData = options.body instanceof FormData;
     const baseHeaders = getAuthHeaders();
@@ -94,7 +94,14 @@ export async function makeApiCall<T>(
     };
 
     try {
-        console.log('Making API call:', { url, method: config.method || 'GET', headers: config.headers });
+        // console.log('Making API call:', { url, method: config.method || 'GET', headers: config.headers });
+        console.log("Making API call:", {
+            url,
+            method: config.method || "GET",
+            hasAuthorization: Boolean(
+                (config.headers as Record<string, string>)?.Authorization
+            ),
+        });
         const response = await fetch(url, config);
 
         console.log('API response:', { status: response.status, statusText: response.statusText, url });
@@ -208,10 +215,18 @@ export async function makeApiCall<T>(
 /**
  * GET request
  */
-export async function get<T>(endpoint: string): Promise<T> {
-    return makeApiCall<T>(endpoint, { method: 'GET' });
+// export async function get<T>(endpoint: string): Promise<T> {
+//     return makeApiCall<T>(endpoint, { method: 'GET' });
+// }
+export async function get<T>(
+    endpoint: string,
+    options: RequestInit = {}
+): Promise<T> {
+    return makeApiCall<T>(endpoint, {
+        method: "GET",
+        ...options,
+    });
 }
-
 /**
  * POST request
  */

@@ -38,6 +38,7 @@ import {
     Palette,
     PhoneAndroid,
     History,
+    People,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -140,6 +141,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         // { text: 'POS', icon: <PointOfSale />, path: '/pos' },
         { text: 'Groups and Roles', icon: <PeopleAlt />, path: '/roles' },
         { text: 'Reference', icon: <Analytics />, path: '/reference' },
+        { text: 'Customers', icon: <People />, path: '/customer' },
         // { text: 'History Logs', icon: <History />, path: '/history' },
         { text: 'Settings', icon: <Settings />, path: '/settings' },
 
