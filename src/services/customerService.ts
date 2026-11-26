@@ -171,49 +171,6 @@ export interface ValidateCustomerResponse {
   };
 }
 
-export const fetchValidateCustomerBeforeVend = async (
-  account_number: string,
-  vendorToken: string
-) => {
-  const url = `${API_BASE_URL}/transactions/validate/?account_number=${encodeURIComponent(
-    account_number
-  )}`;
-
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${vendorToken}`,
-      "Content-Type": "application/json",
-    },
-  });
-
-  const responseText = await response.text();
-
-  let data: any = {};
-
-  try {
-    data = responseText ? JSON.parse(responseText) : {};
-  } catch {
-    data = { message: responseText };
-  }
-
-  // Do NOT trigger global logout on this endpoint's 401.
-  if (!response.ok) {
-    throw {
-      ...data,
-      status: response.status,
-      message:
-        data?.detail ||
-        data?.message ||
-        data?.error ||
-        `Request failed with status ${response.status}`,
-    };
-  }
-
-  return data;
-};
-
-
 
 export interface VendPaymentPayload {
   account_number: string;
@@ -234,45 +191,120 @@ export interface VendTransactionResponse {
   units: string;
 }
 
+// const vendorTransactionRequest = async <T,>(
+//   endpoint: string,
+//   vendorToken: string,
+//   options: RequestInit = {}
+// ): Promise<T> => {
+//   const baseUrl = API_BASE_URL.replace(/\/+$/, "");
+//   const response = await fetch(`${baseUrl}${endpoint}`, {
+//     ...options,
+//     headers: {
+//       Authorization: `Bearer ${vendorToken}`,
+//       Accept: "application/json",
+//       ...(options.body ? { "Content-Type": "application/json" } : {}),
+//       ...options.headers,
+//     },
+//   });
+
+//   const responseText = await response.text();
+
+//   let data: any = {};
+
+//   try {
+//     data = responseText ? JSON.parse(responseText) : {};
+//   } catch {
+//     data = { message: responseText };
+//   }
+
+//   if (!response.ok) {
+//     throw {
+//       ...data,
+//       status: response.status,
+//       message:
+//         data?.detail ||
+//         data?.error ||
+//         data?.message ||
+//         `Transaction request failed (${response.status})`,
+//     };
+//   }
+
+//   return data as T;
+// };
+
 const vendorTransactionRequest = async <T,>(
   endpoint: string,
   vendorToken: string,
   options: RequestInit = {}
 ): Promise<T> => {
   const baseUrl = API_BASE_URL.replace(/\/+$/, "");
+
   const response = await fetch(`${baseUrl}${endpoint}`, {
     ...options,
     headers: {
       Authorization: `Bearer ${vendorToken}`,
       Accept: "application/json",
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.body
+        ? { "Content-Type": "application/json" }
+        : {}),
       ...options.headers,
     },
   });
 
   const responseText = await response.text();
 
-  let data: any = {};
+  let data: any = null;
 
   try {
-    data = responseText ? JSON.parse(responseText) : {};
+    data = responseText ? JSON.parse(responseText) : null;
   } catch {
-    data = { message: responseText };
+    data = responseText;
   }
 
   if (!response.ok) {
+    let backendMessage = "";
+
+    if (Array.isArray(data)) {
+      backendMessage = data.join(", ");
+    } else if (typeof data === "string") {
+      backendMessage = data;
+    } else if (data && typeof data === "object") {
+      backendMessage =
+        data.detail ||
+        data.error ||
+        data.message ||
+        data[0] ||
+        Object.values(data)
+          .flat()
+          .filter(Boolean)
+          .join(", ");
+    }
+
     throw {
-      ...data,
       status: response.status,
       message:
-        data?.detail ||
-        data?.error ||
-        data?.message ||
-        `Transaction request failed (${response.status})`,
+        backendMessage ||
+        `Request failed with status ${response.status}`,
+      error: data,
     };
   }
 
   return data as T;
+};
+
+export const fetchValidateCustomerBeforeVend = (
+  accountNumber: string,
+  vendorToken: string
+) => {
+  return vendorTransactionRequest<ValidateCustomerResponse>(
+    `/transactions/validate/?account_number=${encodeURIComponent(
+      accountNumber
+    )}`,
+    vendorToken,
+    {
+      method: "GET",
+    }
+  );
 };
 
 export const processVendPayment = (

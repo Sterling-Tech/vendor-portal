@@ -1,44 +1,35 @@
 import { get } from "./api";
 
-
-export interface VendorRecord {
+export interface VendorOnboardingData{
   id: number;
   business_name: string;
   email: string;
   phone_number: string;
-  account_status: "active" | "inactive" | "suspended";
-  hierachy: string;
-  vendor_type: "internal" | "external";
-  token: string | null;
-  test_token: string | null;
-  test_token_expires_at: string | null;
-  test_balance: string | null;
+  account_status: "active";
+  hierachy: "vendor"|"sub-vendor"|"agent"|"cashier"|"pos";
+  vendor_type: "internal"|"external";
+  related_vendor: {
+    id: number;
+    email: string;
+    business_name: string;
+    account_status: "active"|"inactive"|"suspended";
+    hierachy: "vendor"|"sub-vendor"|"agent"|"cashier"|"pos";
+    vendor_type: "internal"|"external";
+  },
+  funding_cap: string;
+  transaction_max: string;
+  commission_rate: string;
+  monthly_target: string;
+  onboarding_status: string;
+  kyc_submitted_at: string;
+  kyc_reviewed_at: string;
+  kyc_rejection_reason: string;
+  token: string;
+  test_token: string;
+  test_token_expires_at: string;
+  test_balance: string;
 }
-
-export interface VendorRetrieveResponse {
-  count?: number;
-  next?: string | null;
-  previous?: string | null;
-  results?: VendorRecord[];
+export const fetchVendorOnboardingData = async (): Promise<VendorOnboardingData> => {
+  const response = await get<VendorOnboardingData>("/vendor/onboarding/");
+  return response;
 }
-
-export const fetchVendorById = async (
-  vendorId: number
-): Promise<VendorRecord> => {
-  const response = await get<
-    VendorRecord | VendorRecord[] | VendorRetrieveResponse
-  >(`/vendor/retrieve/?vendor_id=${vendorId}`);
-
-  // Support the different response shapes described by the API.
-  if (Array.isArray(response)) {
-    if (!response.length) throw new Error("Vendor record not found.");
-    return response[0];
-  }
-
-  if ("results" in response && response.results) {
-    if (!response.results.length) throw new Error("Vendor record not found.");
-    return response.results[0];
-  }
-
-  return response as VendorRecord;
-};

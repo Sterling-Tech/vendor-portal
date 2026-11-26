@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
     Alert,
     Avatar,
@@ -18,6 +18,14 @@ import {
     Stack,
     TextField,
     Typography,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
 } from "@mui/material";
 
 import SearchIcon from "@mui/icons-material/Search";
@@ -30,22 +38,15 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import { fetchValidateCustomerBeforeVend, processVendPayment, requeryVendTransaction, ValidateCustomerResponse, VendTransactionResponse } from "../../../services/customerService";
+import { fetchValidateCustomerBeforeVend, processVendPayment, requeryVendTransaction, ValidateCustomerResponse, VendPaymentPayload, VendTransactionResponse } from "../../../services/customerService";
 import { useAppSelector } from "../../../store/hooks";
-import { fetchVendorById } from "../../../services/vendorService";
+import { fetchVendorOnboardingData } from "../../../services/vendorService";
+import VendingHistory from "./VendingHistory";
 
 
-// interface VendingProps {
-//     vendorToken: string;
-//     channel: string;
-//     paymentMode: string;
 
-//     onProceed?: (
-//         customer: ValidateCustomerResponse["customer"],
-//         amount: number,
-//         minimumVend: number
-//     ) => void;
-// }
+type VendorData = Awaited<ReturnType<typeof fetchVendorOnboardingData>>;
+
 interface VendingProps {
     onProceed?: (
         customer: ValidateCustomerResponse["customer"],
@@ -58,9 +59,6 @@ const quickAmounts = [500, 1000, 2000, 5000, 10000, 20000];
 
 
 export default function Vending({
-    // vendorToken,
-    // channel,
-    // paymentMode,
     onProceed,
 }: VendingProps) {
     const [accountNumber, setAccountNumber] = useState("");
@@ -71,13 +69,20 @@ export default function Vending({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
 
-    const { user } = useAppSelector((state) => state.auth);
-
+    const [vendor, setVendor] = useState<VendorData | null>(null);
     const [vendLoading, setVendLoading] = useState(false);
     const [requeryLoading, setRequeryLoading] = useState(false);
 
-    const [transaction, setTransaction] =
-        useState<VendTransactionResponse | null>(null);
+    const [successMessage, setSuccessMessage] = useState("");
+
+    const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+
+    const [paymentDetails, setPaymentDetails] = useState({
+        channel: "",
+        paymentMode: "",
+    });
+
+    const [transaction, setTransaction] = useState<VendTransactionResponse | null>(null);
 
     const [transactionReference, setTransactionReference] = useState("");
     const [transactionError, setTransactionError] = useState("");
@@ -94,6 +99,43 @@ export default function Vending({
     ).sort((a, b) => a - b);
 
 
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadVendor = async () => {
+            try {
+                setVendLoading(true);
+                setError("");
+
+                const vendorData = await fetchVendorOnboardingData();
+
+                if (!vendorData?.token) {
+                    throw new Error("Vendor transaction token is unavailable.");
+                }
+
+                if (isMounted) {
+                    setVendor(vendorData);
+                }
+            } catch (err: any) {
+                if (isMounted) {
+                    setError(
+                        err?.message || "Unable to retrieve vendor information."
+                    );
+                }
+            } finally {
+                if (isMounted) {
+                    setVendLoading(false);
+                }
+            }
+        };
+
+        loadVendor();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
     const handleValidate = async () => {
         if (!accountNumber.trim()) {
             setError("Please enter a customer account number.");
@@ -107,9 +149,9 @@ export default function Vending({
             setAmount("");
 
             // Step 1: Retrieve the logged-in vendor's record.
-            const vendor = await fetchVendorById(user?.id);
+            // const vendor = await fetchVendorOnboardingData();
 
-            if (!vendor.token) {
+            if (!vendor?.token) {
                 throw new Error("Vendor transaction token is unavailable.");
             }
 
@@ -129,17 +171,17 @@ export default function Vending({
             setAmount(response.minimum_vend);
 
         } catch (err: any) {
-            console.error("Customer validation failed:", {
-                status: err?.status,
-                message: err?.message,
-                error: err?.error,
-            });
+            console.error("Customer validation failed:", err);
 
             if (err?.status === 401) {
                 setError("Vendor transaction token was rejected.");
             } else if (err?.status === 403) {
                 setError(
                     "Your vendor is not permitted to vend for this customer's scheme."
+                );
+            } else if (err?.status === 400) {
+                setError(
+                    err?.message || "Customer validation failed. Please check the account number."
                 );
             } else {
                 setError(
@@ -164,35 +206,41 @@ export default function Vending({
         }
     };
 
-    const handleProceed = () => {
-        if (!validationData || !amountValid) return;
 
-        onProceed?.(
-            validationData.customer,
-            vendAmount,
-            minimumVend
-        );
-    };
+    const handleVend = async () => {
+        if (!validationData || !amountValid) {
+            setTransactionError("Please validate the customer and enter a valid amount.");
+            return;
+        }
 
-    const handleVend = async ({channel,paymentMode}:any) => {
-        if (!validationData || !amountValid) return;
-        const vendor = await fetchVendorById(user?.id);
-        if (!vendor.token) {
+        if (!vendor?.token) {
             setTransactionError("Vendor transaction token is unavailable.");
             return;
         }
 
-        if (!channel || !paymentMode) {
-            setTransactionError("Payment channel or payment mode is missing.");
+        const { channel, paymentMode } = paymentDetails;
+
+        if (!channel.trim() || !paymentMode.trim()) {
+            setTransactionError(
+                "Please provide the payment channel and payment mode."
+            );
             return;
         }
 
-        // Prevent submitting another payment while an earlier one
-        // has an uncertain outcome.
         if (transactionReference) {
             setTransactionError(
                 "A transaction is awaiting confirmation. Requery it before starting another vend."
             );
+            return;
+        }
+
+        // Retrieve bill type directly from the validation response.
+        const billType = validationData.customer.metering_type
+            ?.trim()
+            .toLowerCase();
+
+        if (billType !== "prepaid" && billType !== "postpaid") {
+            setTransactionError("Invalid bill type returned for this customer.");
             return;
         }
 
@@ -201,36 +249,46 @@ export default function Vending({
             .slice(2, 8)
             .toUpperCase()}`;
 
+        const payload: VendPaymentPayload = {
+            account_number: accountNumber.trim(),
+            amount: vendAmount.toFixed(2),
+            reference,
+            bill_type: billType,
+            channel: channel.trim(),
+            payment_mode: paymentMode.trim(),
+        };
+
         setVendLoading(true);
         setTransactionError("");
         setTransaction(null);
         setTransactionReference(reference);
 
         try {
-            const response = await processVendPayment(
-                {
-                    account_number: accountNumber.trim(),
-                    amount: vendAmount.toFixed(2),
-                    reference,
-                    bill_type: "prepaid",
-                    channel,
-                    payment_mode: paymentMode,
-                },
-                vendor.token
-            );
+            const response = await processVendPayment(payload, vendor.token);
 
             setTransaction(response);
 
-            // Release the reference only when the backend confirms
-            // a final successful or failed state.
             const status = response.status?.toLowerCase();
 
             if (["success", "successful", "completed", "failed", "declined"].includes(status)) {
+                setSuccessMessage(
+                    "Vend successful! Your electricity token has been generated successfully."
+                );
+                setTransactionReference("");
+            } else {
+                setSuccessMessage("");
+            }
+
+            if (
+                ["failed", "declined"].includes(status)
+            ) {
                 setTransactionReference("");
             }
+
+            setPaymentModalOpen(false);
         } catch (err: any) {
             console.error("Vend payment error:", err);
-
+            setSuccessMessage("");
             if (err?.status === 401) {
                 setTransactionError("Vendor transaction token is invalid or expired.");
             } else if (err?.status === 403) {
@@ -239,11 +297,9 @@ export default function Vending({
                 );
             } else if (err?.status === 400) {
                 setTransactionError(
-                    err?.message || "Payment could not be processed. Check the amount and account details."
+                    err?.message || "Payment could not be processed."
                 );
             } else {
-                // Keep the reference. The request may have reached the
-                // backend even though the frontend did not receive a response.
                 setTransactionError(
                     "We could not confirm the transaction result. Please requery using the transaction reference before trying again."
                 );
@@ -253,10 +309,9 @@ export default function Vending({
         }
     };
 
-
     const handleRequery = async () => {
-        const vendor = await fetchVendorById(user?.id);
-        if (!transactionReference || !vendor.token) return;
+
+        if (!transactionReference || !vendor?.token) return;
 
         try {
             setRequeryLoading(true);
@@ -271,14 +326,26 @@ export default function Vending({
 
             const status = response.status?.toLowerCase();
 
-            if (
-                ["success", "successful", "completed", "failed", "declined"].includes(status)
-            ) {
+            // if (
+            //     ["success", "successful", "completed", "failed", "declined"].includes(status)
+            // ) {
+            //     setTransactionReference("");
+            // }
+            if (["success", "successful", "completed"].includes(status)) {
+                setSuccessMessage(
+                    "Transaction confirmed! Your electricity vending was successful."
+                );
+
                 setTransactionReference("");
+            } else if (["failed", "declined"].includes(status)) {
+                setSuccessMessage("");
+                setTransactionReference("");
+            } else {
+                setSuccessMessage("");
             }
         } catch (err: any) {
             console.error("Transaction requery failed:", err);
-
+            setSuccessMessage("");
             setTransactionError(
                 err?.message || "Unable to retrieve the transaction status."
             );
@@ -301,6 +368,44 @@ export default function Vending({
         setError("");
     };
 
+    // const sampleTransactions: VendingHistoryItem[] = [
+    //     {
+    //         id: 1,
+    //         transaction_reference: "VEND-173254001-ABC123",
+    //         account_number: "12345678901",
+    //         status: "successful",
+    //         amount: "5000.00",
+    //         units: "45.2",
+    //         token: "1234-5678-9012-3456-7890",
+    //         vat: "375.00",
+    //         debt: "0.00",
+    //         created_at: "2026-11-25T10:30:00Z",
+    //     },
+    //     {
+    //         id: 2,
+    //         transaction_reference: "VEND-173254002-XYZ789",
+    //         account_number: "12345678902",
+    //         status: "pending",
+    //         amount: "2000.00",
+    //         units: "18.5",
+    //         token: "",
+    //         vat: "150.00",
+    //         debt: "0.00",
+    //         created_at: "2026-11-25T11:15:00Z",
+    //     },
+    //     {
+    //         id: 3,
+    //         transaction_reference: "VEND-173254003-DEF456",
+    //         account_number: "12345678903",
+    //         status: "failed",
+    //         amount: "1000.00",
+    //         units: "0",
+    //         token: "",
+    //         vat: "0",
+    //         debt: "0",
+    //         created_at: "2026-11-25T12:00:00Z",
+    //     },
+    // ];
     // --------------------------------------------------
     // CUSTOMER DETAIL ITEM
     // --------------------------------------------------
@@ -708,26 +813,21 @@ export default function Vending({
                                 justifyContent="flex-end"
                                 mt={3}
                             >
-                                {/* <Button
-                                    variant="contained"
-                                    size="large"
-                                    disabled={!amountValid}
-                                    onClick={handleProceed}
-                                    endIcon={<ArrowForwardIcon />}
-                                    sx={{
-                                        borderRadius: 2,
-                                        minWidth: 220,
-                                        fontWeight: 600,
-                                        textTransform: "none",
-                                    }}
-                                >
-                                    Proceed to Vend
-                                </Button> */}
                                 <Button
                                     variant="contained"
                                     size="large"
-                                    disabled={!amountValid || vendLoading || !!transaction}
-                                    onClick={handleVend}
+                                    disabled={
+                                        !amountValid ||
+                                        vendLoading ||
+                                        !!transaction ||
+                                        !!transactionReference ||
+                                        !vendor?.token
+                                    }
+                                    // onClick={handleVend}
+                                    onClick={() => {
+                                        setTransactionError("");
+                                        setPaymentModalOpen(true);
+                                    }}
                                     endIcon={
                                         vendLoading ? (
                                             <CircularProgress size={18} color="inherit" />
@@ -744,9 +844,27 @@ export default function Vending({
                                 >
                                     {vendLoading ? "Processing Payment..." : "Pay & Vend"}
                                 </Button>
+
                             </Box>
                         </CardContent>
                     </Card>
+
+                    {successMessage && (
+                        <Alert
+                            severity="success"
+                            icon={<CheckCircleIcon />}
+                            onClose={() => setSuccessMessage("")}
+                            sx={{
+                                mb: 3,
+                                borderRadius: 2,
+                                alignItems: "center",
+                            }}
+                        >
+                            <Typography fontWeight={600}>
+                                {successMessage}
+                            </Typography>
+                        </Alert>
+                    )}
 
                     {/* transactions */}
                     {transaction && (
@@ -904,6 +1022,135 @@ export default function Vending({
                     )}
                 </Box>
             )}
+
+            <Dialog
+                open={paymentModalOpen}
+                onClose={() => {
+                    if (!vendLoading) {
+                        setPaymentModalOpen(false);
+                    }
+                }}
+                fullWidth
+                maxWidth="xs"
+            >
+                <DialogTitle fontWeight={700}>
+                    Payment Details
+                </DialogTitle>
+                <DialogContent>
+                    <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        mb={2.5}
+                    >
+                        Enter the payment channel and payment mode to continue with
+                        this vending transaction.
+                    </Typography>
+
+                    <Stack spacing={2.5}>
+                        <TextField
+                            fullWidth
+                            size="small"
+                            label="Payment Channel"
+                            placeholder="Enter payment channel"
+                            value={paymentDetails.channel}
+                            onChange={(e) =>
+                                setPaymentDetails((prev) => ({
+                                    ...prev,
+                                    channel: e.target.value,
+                                }))
+                            }
+                            required
+                        />
+
+                        <TextField
+                            fullWidth
+                            size="small"
+                            label="Payment Mode"
+                            placeholder="Enter payment mode"
+                            value={paymentDetails.paymentMode}
+                            onChange={(e) =>
+                                setPaymentDetails((prev) => ({
+                                    ...prev,
+                                    paymentMode: e.target.value,
+                                }))
+                            }
+                            required
+                        />
+
+                        <Paper
+                            variant="outlined"
+                            sx={{
+                                p: 2,
+                                borderRadius: 2,
+                                bgcolor: "#f8fafc",
+                            }}
+                        >
+                            <Typography variant="body2" color="text.secondary">
+                                Amount to Vend
+                            </Typography>
+
+                            <Typography variant="h6" fontWeight={700}>
+                                {formatCurrency(vendAmount)}
+                            </Typography>
+                        </Paper>
+                    </Stack>
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 2.5 }}>
+                    <Button
+                        onClick={() => setPaymentModalOpen(false)}
+                        disabled={vendLoading}
+                        color="inherit"
+                        sx={{ textTransform: "none" }}
+                    >
+                        Cancel
+                    </Button>
+
+                    <Button
+                        variant="contained"
+                        disabled={
+                            vendLoading ||
+                            !paymentDetails.channel.trim() ||
+                            !paymentDetails.paymentMode.trim()
+                        }
+                        onClick={handleVend}
+                        sx={{ textTransform: "none", minWidth: 130 }}
+                    >
+                        {vendLoading ? (
+                            <CircularProgress size={20} color="inherit" />
+                        ) : (
+                            "Confirm & Vend"
+                        )}
+                    </Button>
+                </DialogActions>
+
+            </Dialog>
+
+
+            {/* <VendingHistory
+                transactions={sampleTransactions}
+                onRefresh={() => console.log("Refresh transactions")}
+                onViewDetails={(transaction) =>
+                    console.log("Selected transaction:", transaction)
+                }
+            /> */}
+
+            {/* <div className="mt-10 border-t border-gray-200 pt-6" */}
+            <Box
+                sx={{
+                    mt: 3,
+                    p: 2,
+                    bgcolor: "#f0fdf4",
+                    border: "1px dashed #86efac",
+                    borderRadius: 2,
+                }}
+            >
+                <VendingHistory
+                    transaction={transaction}
+                    loading={vendLoading || requeryLoading}
+                    error={transactionError}
+                />
+            </Box>
+
         </Box>
     );
 }
